@@ -22,10 +22,11 @@ const h = (tag, cls, text) => {
  *   ping(),                     async: resolves when the server answered
  *   pullNow(),                  ask the sync for changes now
  *   say(text),                  a short message at the bottom of the page
+ *   account: { user(), apps(), signOut() }   optional: when the server has sign-in on and someone is signed in
  * }
  */
 export function mountMenu(options) {
-  const { button, embedded, connectorUrl, getInfo, rail, ping, pullNow, say } = options;
+  const { button, embedded, connectorUrl, getInfo, rail, ping, pullNow, say, account } = options;
   let menu = null;
   let panel = null;
   let stopLog = null;
@@ -90,6 +91,12 @@ export function mountMenu(options) {
     }
     add("Debug info", openPanel);
     add("Copy diagnostics", copyReport);
+    const user = account?.user();
+    if (user) {
+      sep();
+      add("Connected apps", account.apps);
+      add("Sign out", account.signOut, { hint: user.name.length > 18 ? user.name.slice(0, 17) + "…" : user.name });
+    }
 
     document.body.append(menu);
     const r = button.getBoundingClientRect();

@@ -7,6 +7,9 @@
 # there, so it must be reachable from the browser, not just from this machine.
 # To change the network, container name or anything else for your own setup, put it in
 # docker-compose.override.yml (ignored by git).
+#
+# Optional sign-in: put the OIDC_* settings (see README, "Sign-in") in a .env file next to this one
+# (ignored by git; keep it readable only by you). With no .env, or no OIDC_ISSUER in it, it is off.
 services:
   ghostwriter:
     build: .
@@ -16,6 +19,9 @@ services:
       - "3010:3010"
     volumes:
       - ./data:/data
+    env_file:
+      - path: .env
+        required: false
     environment:
       - PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-http://localhost:3010}
     healthcheck:

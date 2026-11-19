@@ -10,6 +10,7 @@
     "start": "node server.js",
     "test": "node --test \"test/*.test.js\" \"evals/tests/*.test.js\"",
     "e2e": "node test/e2e.cjs",
+    "e2e:auth": "node test/e2e-auth.cjs",
     "evals": "node evals/run.js",
     "evals:selftest": "node evals/run.js --selftest"
   },

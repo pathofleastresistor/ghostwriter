@@ -10,6 +10,7 @@ import { createApi } from "./api.js";
 import { renderDocs, closeMenu } from "./home.js";
 import { captureErrors, connectorUrl } from "./debuglog.js";
 import { mountMenu } from "./debug.js";
+import { openApps } from "./account.js";
 
 captureErrors();
 
@@ -18,12 +19,17 @@ const $ = (s) => document.querySelector(s);
 const PREF_LAYOUT = "ghostwriter:layout";
 let host = null; // set when the page is shown inside an MCP host such as Claude (see host.js)
 let selectedText = "";
-const api = createApi();
+const api = createApi({ onUnauthorized: () => signedOut() });
+// Sign-in is optional and decided by the server. {auth: false} means it is off: everything is open.
+let session = { auth: false, user: null };
+let hostReady = false; // inside a host: true once the host can renew the editor's token
+let retryWhenHost = false;
 
 /* ---------------------------------- screens --------------------------------- */
 
 function screen(name) {
   document.body.dataset.screen = name;
+  $("#signin").hidden = name !== "signin";
   $("#home").hidden = name !== "home";
   $("#editor-screen").hidden = name !== "editor";
   if (name !== "home") closeMenu();
@@ -360,6 +366,12 @@ const debugMenu = mountMenu({
     toggle: () => setRail(!railOpen()),
   },
   getInfo: debugInfo,
+  account: {
+    // Only on the website: inside a host, the host's own connection is the sign-in.
+    user: () => (!embedded && session.auth ? session.user : null),
+    apps: () => openApps({ api, say: (text) => snack(text) }),
+    signOut,
+  },
   ping: () => api("GET", "/docs"),
   pullNow: () => sync.pullNow(),
   say: (text) => snack(text),
@@ -372,6 +384,7 @@ function debugInfo() {
   return {
     Page: {
       mode: embedded ? "inside a host (Claude)" : "browser tab",
+      "sign-in": session.auth ? (session.user ? `on, signed in as ${session.user.name}` : "on, signed out") : "off",
       build: window.__GHOSTWRITER_BUILD__ || "n/a (not served by the app)",
       screen: document.body.dataset.screen,
       "api origin": window.__GHOSTWRITER__?.origin || location.origin,
@@ -682,6 +695,55 @@ function fail(e) {
   snack(e.message || "Something went wrong.");
 }
 
+/* ---------------------------------- sign-in --------------------------------- */
+// Only when the server has sign-in on. The website signs in at the server's provider and comes back;
+// inside a host the editor uses a token the host renews (host.js), so it only needs to wait for that.
+
+function signedOut() {
+  if (embedded && !hostReady) {
+    // The token the view came with ran out before the host could renew it: try again once it can.
+    retryWhenHost = true;
+    return;
+  }
+  session = { ...session, user: null };
+  clearInterval(homeTimer);
+  homeTimer = null;
+  sync.close();
+  screen("signin");
+  document.title = "Sign in · Ghostwriter";
+  $("#signin-text").textContent = embedded
+    ? "Ghostwriter needs you to sign in again. Ask the assistant to open Ghostwriter again, or reconnect it in your chat app's connector settings."
+    : "This Ghostwriter is private. Sign in to see your documents.";
+  $("#signin-btn").hidden = embedded;
+}
+
+$("#signin-btn").addEventListener("click", () => {
+  // Come back to the same screen afterwards. A navigation, not a request: the provider's page shows.
+  location.assign(`/auth/login?return=${encodeURIComponent("/" + location.hash)}`);
+});
+
+async function signOut() {
+  try {
+    await sync.close();
+    await api("DELETE", "/session");
+  } catch {
+    /* signed out either way below */
+  }
+  signedOut();
+  snack("Signed out.");
+}
+
+/** Asks the server whether sign-in is on and who this is, then shows the right screen. */
+async function start() {
+  try {
+    session = await api("GET", "/session");
+  } catch {
+    session = { auth: false, user: null }; // an older server, or offline: carry on; requests will say
+  }
+  if (session.auth && !session.user && !embedded) return signedOut();
+  route();
+}
+
 /* ---------------------------------- routing --------------------------------- */
 
 function route() {
@@ -703,7 +765,7 @@ addEventListener("pagehide", () => sync.close?.());
 
 view.render();
 showRev();
-route();
+start();
 
 // Inside an MCP host (Claude) the server's view HTML sets this flag; see host.js.
 if (window.__GHOSTWRITER__?.embedded) {
@@ -720,7 +782,16 @@ if (window.__GHOSTWRITER__?.embedded) {
     )
     .then((h) => {
       host = h;
+      hostReady = true;
       mountAsk();
+      if (retryWhenHost) {
+        retryWhenHost = false;
+        route();
+      }
     })
-    .catch((e) => console.warn("[ghostwriter] no host to talk to", e));
+    .catch((e) => {
+      console.warn("[ghostwriter] no host to talk to", e);
+      hostReady = true; // nothing more is coming: if the token was refused, say so
+      if (retryWhenHost) signedOut();
+    });
 }
