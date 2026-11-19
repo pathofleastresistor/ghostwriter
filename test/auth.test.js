@@ -122,11 +122,18 @@ describe("signed out", () => {
   test("advertises itself as the authorization server for /mcp, with registration and PKCE", async () => {
     const prm = await (await fetch(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`)).json();
     assert.equal(prm.resource, `${ORIGIN}/mcp`);
-    assert.deepEqual(prm.authorization_servers, [`${ORIGIN}/`]);
+    assert.deepEqual(prm.authorization_servers, [ORIGIN]);
     const root = await (await fetch(`${ORIGIN}/.well-known/oauth-protected-resource`)).json();
-    assert.equal(root.resource, `${ORIGIN}/mcp`);
+    assert.equal(root.resource, ORIGIN, "the root document names the server (RFC 9728)");
+    assert.deepEqual(root.authorization_servers, [ORIGIN]);
     const as = await (await fetch(`${ORIGIN}/.well-known/oauth-authorization-server`)).json();
-    assert.equal(as.issuer, `${ORIGIN}/`);
+    // The issuer is written the same way everywhere, with no trailing slash: ChatGPT compares exactly.
+    assert.equal(as.issuer, ORIGIN);
+    const asSlash = await (await fetch(`${ORIGIN}/.well-known/oauth-authorization-server/`)).json();
+    assert.equal(asSlash.issuer, ORIGIN);
+    const oidc = await fetch(`${ORIGIN}/.well-known/openid-configuration`);
+    assert.equal(oidc.status, 404);
+    assert.equal((await oidc.json()).error, "not_found");
     assert.equal(as.registration_endpoint, `${ORIGIN}/register`);
     assert.deepEqual(as.code_challenge_methods_supported, ["S256"]);
     assert.ok(as.revocation_endpoint);
@@ -467,6 +474,35 @@ describe("MCP hosts (Claude, ChatGPT)", () => {
     assert.equal((await reg(["https://claude.ai/api/mcp/auth_callback"])).status, 201);
     assert.equal((await reg(["cursor://anysphere.cursor-retrieval/oauth/callback"])).status, 201, "an app's own scheme");
     assert.ok(redirectAllowed("http://localhost:33418/callback"));
+  });
+
+  test("a ChatGPT-style client (public, PKCE, resource = the server's root) gets a token that works on /mcp", async () => {
+    const crypto = await import("node:crypto");
+    const b = browser();
+    await signIn(b);
+    const redirect = "https://chatgpt.com/connector/oauth/test-callback";
+    const reg = await fetch(`${ORIGIN}/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "ChatGPT", redirect_uris: [redirect], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }) });
+    assert.equal(reg.status, 201);
+    const { client_id } = await reg.json();
+    const verifier = crypto.randomBytes(32).toString("base64url");
+    const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+    const u = new URL(`${ORIGIN}/authorize`);
+    for (const [k, v] of Object.entries({ response_type: "code", client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state: "st", resource: ORIGIN })) u.searchParams.set(k, v);
+    const { res, url } = await b.follow(u.href, { stopAt: redirect });
+    let back = url;
+    if (!back.startsWith(redirect)) {
+      const csrf = /name="csrf" value="([^"]+)"/.exec(await res.text())[1];
+      const r = await b.go(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN }, body: new URLSearchParams({ csrf, decision: "allow" }) });
+      back = r.headers.get("location");
+    }
+    const code = new URL(back).searchParams.get("code");
+    assert.equal(new URL(back).searchParams.get("state"), "st");
+    const tok = await tokenRequest({ grant_type: "authorization_code", code, code_verifier: verifier, client_id, redirect_uri: redirect, resource: ORIGIN });
+    assert.equal(tok.status, 200);
+    const t = await tok.json();
+    assert.equal((await mcpWith(t.access_token)).status, 200);
+    const again = await tokenRequest({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id, resource: ORIGIN });
+    assert.equal(again.status, 200, "refresh with the root as resource");
   });
 
   test("a token is only for this server: another resource is refused at authorization", async () => {
