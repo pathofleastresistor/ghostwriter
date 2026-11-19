@@ -1,0 +1,9 @@
+data/
+dist/
+dist-test/
+node_modules/
+.env
+docker-compose.override.yml
+evals/results/
+.DS_Store
+*.log

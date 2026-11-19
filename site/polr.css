@@ -1,0 +1,158 @@
+/* PoLR Apps design system. Generated from tokens.json; do not edit by hand. */
+:root {
+  color-scheme: light dark;
+  --ground: #f3f4f7;
+  --surface: #ffffff;
+  --sunken: #e7e9ef;
+  --line: #d8dbe4;
+  --line-strong: #6b7285;
+  --ink: #12151c;
+  --ink-muted: #555c6e;
+  --accent: #d4430a;
+  --on-accent: #ffffff;
+  --accent-soft: #ffe6d8;
+  --accent-text: #a33207;
+  --violet: #5b3fd1;
+  --violet-soft: #e8e3fb;
+  --violet-text: #4a31b5;
+  --amber: #f2b705;
+  --on-amber: #12151c;
+  --good: #1b7a44;
+  --good-soft: #d9f2e3;
+  --good-text: #17663a;
+  --danger: #c42430;
+  --danger-soft: #fde4e6;
+  --danger-text: #a81d28;
+  --focus: #2b57e0;
+  --shadow-card: 0 1px 2px rgba(18,21,28,0.06), 0 6px 20px rgba(18,21,28,0.07);
+  --shadow-lift: 0 2px 4px rgba(18,21,28,0.08), 0 14px 36px rgba(18,21,28,0.14);
+  --font-display: "Familjen Grotesk", "Hanken Grotesk", system-ui, sans-serif;
+  --font-sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+  --ground: #0e1117;
+  --surface: #171b24;
+  --sunken: #090b10;
+  --line: #2a2f3c;
+  --line-strong: #7d8499;
+  --ink: #edeff5;
+  --ink-muted: #a3aabc;
+  --accent: #ff8a4c;
+  --on-accent: #12151c;
+  --accent-soft: #3a1c0c;
+  --accent-text: #ffab7a;
+  --violet: #a996ff;
+  --violet-soft: #241a55;
+  --violet-text: #bfb1ff;
+  --amber: #ffd23f;
+  --on-amber: #12151c;
+  --good: #4fd08a;
+  --good-soft: #123624;
+  --good-text: #6fe0a2;
+  --danger: #ff7b84;
+  --danger-soft: #4a1a1e;
+  --danger-text: #ff9aa1;
+  --focus: #8fa9ff;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.5), 0 6px 20px rgba(0,0,0,0.4);
+  --shadow-lift: 0 2px 4px rgba(0,0,0,0.6), 0 14px 36px rgba(0,0,0,0.55);
+  }
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e1117;
+  --surface: #171b24;
+  --sunken: #090b10;
+  --line: #2a2f3c;
+  --line-strong: #7d8499;
+  --ink: #edeff5;
+  --ink-muted: #a3aabc;
+  --accent: #ff8a4c;
+  --on-accent: #12151c;
+  --accent-soft: #3a1c0c;
+  --accent-text: #ffab7a;
+  --violet: #a996ff;
+  --violet-soft: #241a55;
+  --violet-text: #bfb1ff;
+  --amber: #ffd23f;
+  --on-amber: #12151c;
+  --good: #4fd08a;
+  --good-soft: #123624;
+  --good-text: #6fe0a2;
+  --danger: #ff7b84;
+  --danger-soft: #4a1a1e;
+  --danger-text: #ff9aa1;
+  --focus: #8fa9ff;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.5), 0 6px 20px rgba(0,0,0,0.4);
+  --shadow-lift: 0 2px 4px rgba(0,0,0,0.6), 0 14px 36px rgba(0,0,0,0.55);
+}
+body { background: var(--ground); color: var(--ink); font-family: var(--font-sans); }
+@media (prefers-reduced-motion: reduce) { .polr-btn { transition: none; } }
+/* Type styles */
+.display-xl{font:700 44px/46px var(--font-display);letter-spacing:-0.02em;}
+.display{font:700 30px/36px var(--font-display);letter-spacing:-0.015em;}
+.heading{font:650 20px/26px var(--font-display);letter-spacing:-0.01em;}
+.title{font:600 16px/22px var(--font-sans);}
+.body{font:400 15px/22px var(--font-sans);}
+.label{font:600 13px/18px var(--font-sans);}
+.caption{font:500 12px/16px var(--font-sans);}
+.value{font:500 13px/20px var(--font-mono);}
+.eyebrow{font:500 11px/16px var(--font-mono);letter-spacing:0.08em;text-transform:uppercase;}
+/* Components */
+/* PoLR Apps components. Every value comes from tokens.css. */
+.polr-btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);height:40px;padding:0 var(--space-4);border:1.5px solid transparent;border-radius:var(--radius-pill);font:600 13px/18px var(--font-sans);white-space:nowrap;cursor:pointer;text-decoration:none;transition:background-color 140ms ease-out,transform 140ms ease-out}
+.polr-btn:active{transform:translateY(1px)}
+.polr-btn:focus-visible,.polr-field input:focus-visible,.polr-tab:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.polr-btn--primary{background:var(--accent);color:var(--on-accent)}
+.polr-btn--primary:hover{background:var(--accent-text)}
+.polr-btn--secondary{background:var(--surface);color:var(--ink);border-color:var(--line-strong)}
+.polr-btn--secondary:hover{background:var(--sunken)}
+.polr-btn--ghost{background:transparent;color:var(--violet-text)}
+.polr-btn--ghost:hover{background:var(--violet-soft)}
+.polr-btn[disabled]{opacity:.45;cursor:not-allowed}
+
+.polr-field{display:flex;flex-direction:column;gap:var(--space-1);font-family:var(--font-sans)}
+.polr-field label{font:600 13px/18px var(--font-sans);color:var(--ink)}
+.polr-field input{height:44px;padding:0 var(--space-3);background:var(--surface);color:var(--ink);border:1.5px solid var(--line-strong);border-radius:var(--radius-md);font:400 15px/22px var(--font-sans)}
+.polr-field input::placeholder{color:var(--ink-muted)}
+.polr-field .polr-hint{font:500 12px/16px var(--font-sans);color:var(--ink-muted)}
+.polr-field--error input{border-color:var(--danger)}
+.polr-field--error .polr-hint{color:var(--danger-text)}
+
+.polr-card{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-card);padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
+.polr-eyebrow{font:500 11px/16px var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}
+.polr-card h3{margin:0;font:650 20px/26px var(--font-display);letter-spacing:-.01em}
+.polr-card p{margin:0;font:400 15px/22px var(--font-sans);color:var(--ink-muted)}
+.polr-value{font:500 13px/20px var(--font-mono);color:var(--ink)}
+
+.polr-chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:var(--radius-sm);font:600 12px/16px var(--font-sans);background:var(--sunken);color:var(--ink)}
+.polr-chip::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.polr-chip--good{background:var(--good-soft);color:var(--good-text)}
+.polr-chip--danger{background:var(--danger-soft);color:var(--danger-text)}
+.polr-chip--info{background:var(--accent-soft);color:var(--accent-text)}
+.polr-chip--tag{background:var(--violet-soft);color:var(--violet-text)}
+.polr-chip--warn{background:var(--amber);color:var(--on-amber)}
+
+.polr-band{display:flex;height:6px;border-radius:var(--radius-pill);overflow:hidden;gap:2px;width:100%}
+.polr-band i{display:block;height:100%}
+.polr-band i:nth-child(1){flex:5;background:var(--accent)}
+.polr-band i:nth-child(2){flex:2;background:var(--violet)}
+.polr-band i:nth-child(3){flex:3;background:var(--amber)}
+.polr-band i:nth-child(4){flex:2;background:var(--ink)}
+.polr-band i:nth-child(5){flex:12;background:var(--line)}
+
+.polr-tabs{display:flex;gap:var(--space-1);padding:var(--space-1);background:var(--sunken);border-radius:var(--radius-pill)}
+.polr-tab{flex:1;height:36px;border:0;border-radius:var(--radius-pill);background:transparent;color:var(--ink-muted);font:600 13px/18px var(--font-sans);cursor:pointer}
+.polr-tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-card)}

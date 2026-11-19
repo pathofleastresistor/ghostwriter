@@ -1,0 +1,62 @@
+{
+  "id": "builds-on-the-persons-edits",
+  "status": "proposed",
+  "title": "The person already changed the document",
+  "task": "Move the whole weekend one day later.",
+  "start": {
+    "setup": [
+      {
+        "op": "edit",
+        "id": "i1",
+        "text": "Friday: leave by 3 pm after school pickup, then groceries in Issaquah"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "id": "reads-first",
+      "kind": "code",
+      "description": "The agent reads the document before it edits anything, so it sees the person's own change.",
+      "status": "proposed"
+    },
+    {
+      "id": "ids-from-store",
+      "kind": "code",
+      "description": "Every id the agent passes to an edit came from a result it was given.",
+      "status": "proposed"
+    },
+    {
+      "id": "doc-contains",
+      "kind": "code",
+      "description": "The person's own detail survives the move.",
+      "args": {
+        "strings": [
+          "school pickup"
+        ]
+      },
+      "status": "proposed"
+    },
+    {
+      "id": "title-unchanged",
+      "kind": "code",
+      "description": "The title is unchanged.",
+      "status": "proposed"
+    },
+    {
+      "id": "shifts-every-day",
+      "kind": "judge",
+      "description": "Every day moves one day later (Friday to Saturday, Saturday to Sunday, Sunday to Monday), including in the opening paragraph, and the person's own change about school pickup is kept.",
+      "status": "proposed"
+    }
+  ],
+  "source": {
+    "kind": "authored",
+    "by": "Claude",
+    "basis": "The person edits too. An agent that works from a stale picture overwrites what they did."
+  },
+  "review": {
+    "approvedBy": null,
+    "approvedAt": null,
+    "comments": ""
+  }
+}

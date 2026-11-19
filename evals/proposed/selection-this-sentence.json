@@ -1,0 +1,90 @@
+{
+  "id": "selection-this-sentence",
+  "status": "proposed",
+  "title": "The person selects a sentence and says \"this\"",
+  "task": "Make this more fun.",
+  "start": {
+    "selection": {
+      "id": "n3",
+      "text": "Nobody checks email."
+    }
+  },
+  "checks": [
+    {
+      "id": "reads-first",
+      "kind": "code",
+      "description": "The agent reads the selection (or the document) before it edits.",
+      "status": "proposed"
+    },
+    {
+      "id": "selection-respected",
+      "kind": "code",
+      "description": "Only the selected paragraph changes, and the sentence before the selection is kept.",
+      "args": {
+        "id": "n3",
+        "keep": [
+          "Rest, swim, and cook one proper dinner."
+        ]
+      },
+      "status": "proposed"
+    },
+    {
+      "id": "unchanged-nodes",
+      "kind": "code",
+      "description": "Nothing else in the document changes.",
+      "args": {
+        "ids": [
+          "n1",
+          "n2",
+          "n4",
+          "i1",
+          "i2",
+          "i3",
+          "i4",
+          "n6",
+          "i5",
+          "i6",
+          "i7",
+          "i8",
+          "n8",
+          "n9",
+          "n10"
+        ]
+      },
+      "status": "proposed"
+    },
+    {
+      "id": "title-unchanged",
+      "kind": "code",
+      "description": "The title is unchanged.",
+      "status": "proposed"
+    },
+    {
+      "id": "doc-excludes",
+      "kind": "code",
+      "description": "The selected sentence was actually rewritten.",
+      "args": {
+        "strings": [
+          "Nobody checks email."
+        ]
+      },
+      "status": "proposed"
+    },
+    {
+      "id": "playful",
+      "kind": "judge",
+      "description": "The new sentence is more playful than the original and is still about not checking email.",
+      "status": "proposed"
+    }
+  ],
+  "source": {
+    "kind": "authored",
+    "by": "Claude",
+    "basis": "Selection awareness: the agent has to find what \"this\" means from the page, not from the person."
+  },
+  "review": {
+    "approvedBy": null,
+    "approvedAt": null,
+    "comments": ""
+  }
+}

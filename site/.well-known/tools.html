@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Agent tools · Ghostwriter</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/polr.css">
+  <style>
+    body { margin: 0; padding: 24px 24px 80px; }
+    .back { display: block; max-width: 960px; margin: 0 auto 20px; font: 500 14px/20px var(--font-sans, system-ui, sans-serif); color: var(--violet-text, #4b32c3); }
+    @media (max-width: 640px) { body { padding: 16px 16px 64px; } }
+  </style>
+</head>
+<body>
+  <a class="back" href="/">← Back to Ghostwriter</a>
+  <main id="root"></main>
+  <!-- Built from the tool definitions the app registers, so it matches what an agent sees. -->
+  <script type="module">
+    import { mountToolsPage } from "/tools-page.js";
+    import { Doc } from "/model.js";
+    import { buildTools } from "/tools.js";
+    mountToolsPage(document.getElementById("root"), {
+      "app": "Ghostwriter",
+      "url": location.origin,
+      "summary": "A bare-bones document editor that describes itself to the visitor's own agent. The agent reads the document as structured nodes and edits it; the page replays each edit as a typewriter and logs the old and new text.",
+      "availability": "Whenever the page is open. It is a single page, so every tool is registered on load.",
+      "boundaries": [
+        "Edit blindly. Edit tools take an optional expected_revision and fail if the document changed since the agent last read it.",
+        "Write anything but plain text. Nodes are headings, paragraphs, lists and quotes, with no markup.",
+        "Make a change the person can't undo. Undo covers the agent's edits as well as their own.",
+        "Reach outside this page. No tool sends, shares, publishes or buys anything, so asking an agent to email the document has to end with the agent saying it can't.",
+        "Take text past the stated limits. Every text field and list has a ceiling, enforced here as well as written in the schema. A refused call changes nothing.",
+        "Ask for the person's own words or personal details. No parameter does."
+      ],
+      "tools": buildTools(new Doc())
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Ghostwriter</title>
+  <meta name="description" content="A simple document your own AI can read and edit while you watch.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/polr.css">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body data-screen="home">
+  <header class="appbar">
+    <a class="brand" href="#/" aria-label="Ghostwriter home">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="brand-name">Ghostwriter</span>
+    </a>
+    <span class="vsep only-editor" aria-hidden="true"></span>
+    <div class="docmeta only-editor">
+      <input class="docname-input" id="docname" type="text" maxlength="200" placeholder="Untitled document" aria-label="Document name" autocomplete="off" spellcheck="false">
+      <span class="savestate" id="savestate" role="status" aria-live="polite">Saved</span>
+    </div>
+    <label class="search only-home">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+      <input id="search" type="search" placeholder="Search documents" aria-label="Search documents" autocomplete="off" spellcheck="false">
+    </label>
+    <span class="grow"></span>
+    <button class="polr-btn polr-btn--secondary btn-sm btn-ask only-editor" id="ask-ai" type="button" aria-haspopup="dialog" aria-expanded="false" title="Ask the AI in this chat about this document" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/></svg><span class="btn-label">Ask AI</span></button>
+    <button class="tool" id="expand" type="button" aria-label="Open larger" title="Open larger" hidden><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button>
+    <button class="tool menu-btn" id="menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Menu" title="Menu: agent panel, add to Claude, debug"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="rail-badge" id="rail-badge" hidden>0</span></button>
+  </header>
+
+  <main id="home" class="home" hidden>
+    <section class="home-start">
+      <div class="home-wrap">
+        <h2 class="home-h">Start a new document</h2>
+        <div class="start-row">
+          <button class="start-card" id="new-blank" type="button">
+            <span class="start-thumb"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></span>
+            <span class="start-label">Blank document</span>
+          </button>
+          <button class="start-card" id="start-demo" type="button">
+            <span class="start-thumb demo"><svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 5v14l12-7z"/></svg></span>
+            <span class="start-label">Watch a demo</span>
+          </button>
+        </div>
+      </div>
+    </section>
+    <section class="home-recent">
+      <div class="home-wrap">
+        <div class="recent-head">
+          <h2 class="home-h">Recent documents</h2>
+          <span class="grow"></span>
+          <span class="caption">Last modified</span>
+          <div class="seg" role="group" aria-label="Layout">
+            <button class="tool" id="view-grid" type="button" aria-pressed="true" aria-label="Grid view" title="Grid view"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></svg></button>
+            <button class="tool" id="view-list" type="button" aria-pressed="false" aria-label="List view" title="List view"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+          </div>
+        </div>
+        <div class="docs" id="docs"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="editor-screen" hidden>
+  <div class="subbar">
+    <div class="toolbar" id="toolbar" role="toolbar" aria-label="Formatting">
+        <button class="tool" type="button" aria-label="Undo" title="Undo (Ctrl+Z)" id="undo" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d='M9 14 4 9l5-5'/><path d='M4 9h10a6 6 0 0 1 0 12h-3'/></svg></button>
+        <button class="tool" type="button" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" id="redo" disabled><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d='m15 14 5-5-5-5'/><path d='M20 9H10a6 6 0 0 0 0 12h3'/></svg></button>
+        <span class="sep" role="separator"></span>
+        <button class="tool" type="button" aria-label="Paragraph" title="Paragraph" data-block="paragraph" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d='M13 4v16M17 4v16M13 4H9.5a4 4 0 0 0 0 8H13'/></svg></button>
+        <button class="tool" type="button" aria-label="Heading" title="Heading" data-block="heading" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6v12M12 6v12M4 12h8"/><text x="15" y="18" font-size="9" font-weight="700" fill="currentColor" stroke="none" font-family="JetBrains Mono, monospace">2</text></svg></button>
+        <button class="tool" type="button" aria-label="Subheading" title="Subheading" data-block="subheading" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6v12M12 6v12M4 12h8"/><text x="15" y="18" font-size="9" font-weight="700" fill="currentColor" stroke="none" font-family="JetBrains Mono, monospace">3</text></svg></button>
+        <span class="sep" role="separator"></span>
+        <button class="tool" type="button" aria-label="Bulleted list" title="Bulleted list" data-block="bullets" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d='M9 6h11M9 12h11M9 18h11'/><circle cx='4.5' cy='6' r='1' fill='currentColor'/><circle cx='4.5' cy='12' r='1' fill='currentColor'/><circle cx='4.5' cy='18' r='1' fill='currentColor'/></svg></button>
+        <button class="tool" type="button" aria-label="Numbered list" title="Numbered list" data-block="numbers" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d='M10 6h10M10 12h10M10 18h10'/><text x='3' y='8' font-size='7' font-weight='700' fill='currentColor' stroke='none' font-family='JetBrains Mono, monospace'>1</text><text x='3' y='14' font-size='7' font-weight='700' fill='currentColor' stroke='none' font-family='JetBrains Mono, monospace'>2</text><text x='3' y='20' font-size='7' font-weight='700' fill='currentColor' stroke='none' font-family='JetBrains Mono, monospace'>3</text></svg></button>
+        <button class="tool" type="button" aria-label="Quote" title="Quote" data-block="quote" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d='M6 17v-4a4 4 0 0 1 4-4M14 17v-4a4 4 0 0 1 4-4'/><path d='M4 17h4M12 17h4' /></svg></button>
+    </div>
+    <span class="grow"></span>
+    <span class="polr-chip polr-chip--tag" id="sel-chip" hidden></span>
+    <span id="agent-status" class="status" role="status" aria-live="polite" hidden>
+      <span class="polr-chip polr-chip--info" id="status-chip">Agent writing</span>
+      <span class="caption" id="status-text"></span>
+    </span>
+  </div>
+
+  <div class="workspace rail-collapsed" id="workspace">
+    <nav class="nav" aria-label="Document outline">
+      <h2 class="nav-h">Outline</h2>
+      <ul class="outline" id="outline"></ul>
+      <p class="caption outline-empty" id="outline-empty">Headings you add show up here, so you can jump around.</p>
+    </nav>
+
+    <main class="canvas" id="canvas">
+      <article class="sheet" aria-label="Document">
+        <div id="editor" class="editor" role="textbox" aria-multiline="true" aria-label="Document body"></div>
+      </article>
+      <p class="caption hint">Tip: type <span class="value">## </span> for a heading, <span class="value">- </span> for bullets, <span class="value">1. </span> for numbers, <span class="value">&gt; </span> for a quote. Undo covers your edits and your agent's. The page is read-only while your agent writes.</p>
+    </main>
+
+    <aside class="rail" id="rail" aria-label="Agent">
+      <div class="rail-head">
+        <h2 class="rail-title">Your agent</h2>
+        <span class="polr-chip" id="mcp-chip">Checking</span>
+        <span class="value" id="mcp-count"></span>
+      </div>
+      <div class="polr-tabs" role="tablist" aria-label="Agent activity">
+        <button class="polr-tab" role="tab" id="tab-changes" aria-selected="true" aria-controls="panel-changes" type="button">Changes</button>
+        <button class="polr-tab" role="tab" id="tab-tools" aria-selected="false" aria-controls="panel-tools" type="button">Tools</button>
+      </div>
+      <div class="rail-body">
+        <div id="panel-changes" role="tabpanel" aria-labelledby="tab-changes">
+          <p class="caption empty" id="changes-empty">Nothing yet. When your agent edits the page, each change shows up here, with the old text and the new.</p>
+          <ol class="changes" id="changes"></ol>
+        </div>
+        <div id="panel-tools" role="tabpanel" aria-labelledby="tab-tools" hidden>
+          <p class="caption mcp-text" id="mcp-text">Looking for your agent.</p>
+          <ul class="tools" id="tools"></ul>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="statusbar">
+    <span id="stat-words">0 words</span>
+    <span id="stat-chars">0 characters</span>
+    <span class="grow"></span>
+    <button class="tool tool-sm" id="sound" type="button" aria-label="Typing sound" title="Typing sound: off" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/></svg></button>
+    <span class="value rev" id="rev" title="Document revision">r1</span>
+  </footer>
+
+  </div>
+
+  <div class="ask-pop" id="ask-pop" role="dialog" aria-label="Ask the AI" hidden>
+    <label class="ask-label" for="ask-text">Ask the AI in this chat</label>
+    <textarea id="ask-text" rows="3" maxlength="2000" placeholder="What should it do with this document?"></textarea>
+    <div class="ask-chips" id="ask-chips"></div>
+    <p class="ask-sel" id="ask-sel" hidden></p>
+    <div class="ask-row">
+      <span class="ask-status" id="ask-status" role="status" aria-live="polite"></span>
+      <button class="polr-btn polr-btn--primary btn-sm" id="ask-send" type="button">Send to chat</button>
+    </div>
+  </div>
+
+  <div class="superseded" id="superseded" role="status" hidden>
+    <p><strong>This editor card is out of date.</strong></p>
+    <p>A newer Ghostwriter card is showing in this chat, so this one has paused. Use the newest card below, or ask the AI to show the editor again.</p>
+  </div>
+
+  <div class="snack" id="snack" role="status" aria-live="polite" hidden>
+    <span id="snack-text"></span>
+    <button class="snack-btn" id="snack-undo" type="button" hidden>Undo</button>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+name: CI
+
+# Runs the server tests, the site tests (sync, merge, tool safety, lint) and the eval harness
+# self-test on every pull request and push to main. No API key, no cost. The browser test
+# (npm run e2e) needs Chrome and is run by hand.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run evals:selftest

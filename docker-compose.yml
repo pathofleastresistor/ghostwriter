@@ -1,0 +1,26 @@
+# Runs Ghostwriter on port 3010. Documents are kept in ./data.
+#
+#   docker compose up -d --build
+#
+# Set PUBLIC_ORIGIN to the address people (and Claude or ChatGPT) reach the site at, for example
+# PUBLIC_ORIGIN=https://notes.example.com. The MCP App view loads its files and calls its API from
+# there, so it must be reachable from the browser, not just from this machine.
+# To change the network, container name or anything else for your own setup, put it in
+# docker-compose.override.yml (ignored by git).
+services:
+  ghostwriter:
+    build: .
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "3010:3010"
+    volumes:
+      - ./data:/data
+    environment:
+      - PUBLIC_ORIGIN=${PUBLIC_ORIGIN:-http://localhost:3010}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

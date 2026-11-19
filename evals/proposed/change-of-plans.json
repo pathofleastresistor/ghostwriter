@@ -1,0 +1,81 @@
+{
+  "id": "change-of-plans",
+  "status": "proposed",
+  "title": "A change of plans ripples through the document",
+  "task": "We're leaving a day late because of the kids' school concert, so we'll get there Saturday instead of Friday. Can you update the plan?",
+  "checks": [
+    {
+      "id": "reads-first",
+      "kind": "code",
+      "description": "The agent reads the document before it edits anything.",
+      "status": "proposed"
+    },
+    {
+      "id": "ids-from-store",
+      "kind": "code",
+      "description": "Every id the agent passes to an edit came from a result it was given.",
+      "status": "proposed"
+    },
+    {
+      "id": "doc-excludes",
+      "kind": "code",
+      "description": "Neither the Friday departure nor the opening's \"driving up Friday\" is left.",
+      "args": {
+        "strings": [
+          "leave by 5:30 pm",
+          "driving up Friday"
+        ]
+      },
+      "status": "proposed"
+    },
+    {
+      "id": "unchanged-nodes",
+      "kind": "code",
+      "description": "The headings and the Packing list are untouched.",
+      "args": {
+        "ids": [
+          "n2",
+          "n4",
+          "n6",
+          "n8",
+          "i5",
+          "i6",
+          "i7",
+          "i8"
+        ]
+      },
+      "status": "proposed"
+    },
+    {
+      "id": "title-unchanged",
+      "kind": "code",
+      "description": "The title is unchanged.",
+      "status": "proposed"
+    },
+    {
+      "id": "calls-bounded",
+      "kind": "code",
+      "description": "The agent finishes in 12 tool calls or fewer.",
+      "args": {
+        "max": 12
+      },
+      "status": "proposed"
+    },
+    {
+      "id": "ripples",
+      "kind": "judge",
+      "description": "The agent updated the opening paragraph as well as the schedule, because both said Friday, and told the person what it changed.",
+      "status": "proposed"
+    }
+  ],
+  "source": {
+    "kind": "authored",
+    "by": "Claude",
+    "basis": "The demo scenario: a plan changes and everything that depended on it has to change."
+  },
+  "review": {
+    "approvedBy": null,
+    "approvedAt": null,
+    "comments": ""
+  }
+}
