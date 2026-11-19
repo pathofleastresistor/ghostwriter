@@ -416,11 +416,11 @@ function siteBuild() {
 }
 const BUILD = siteBuild();
 
-export function viewHtml(origin = ORIGIN, { token } = {}) {
+export function viewHtml(origin = ORIGIN) {
   const html = fs.readFileSync(path.join(SITE, "index.html"), "utf8");
   const absolute = html.replace(/\b(href|src)="\/(?!\/)/g, `$1="${origin}/`);
   // Set before anything paints, so the first frame already has the embedded layout (inline until the host says otherwise).
-  const boot = `<script>window.__GHOSTWRITER__=${JSON.stringify({ origin, embedded: true, ...(auth ? { auth: true } : {}), ...(token ? { token } : {}) }).replace(/</g, "\\u003c")};window.__GHOSTWRITER_BUILD__=${JSON.stringify(BUILD)};document.documentElement.dataset.embedded="";document.documentElement.dataset.display="inline";</script>`;
+  const boot = `<script>window.__GHOSTWRITER__=${JSON.stringify({ origin, embedded: true, ...(auth ? { auth: true } : {}) }).replace(/</g, "\\u003c")};window.__GHOSTWRITER_BUILD__=${JSON.stringify(BUILD)};document.documentElement.dataset.embedded="";document.documentElement.dataset.display="inline";</script>`;
   if (!absolute.includes("</head>")) throw new Error("site/index.html has no </head>");
   return absolute.replace("</head>", `  ${boot}\n</head>`);
 }
@@ -450,16 +450,17 @@ function makeServer() {
     resources: [{ uri: UI_URI, name: "Ghostwriter editor", mimeType: RESOURCE_MIME_TYPE }],
   }));
 
-  server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
+  server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     if (req.params.uri !== UI_URI) throw new Error(`Unknown resource: ${req.params.uri}`);
     return {
       contents: [
         {
           uri: UI_URI,
           mimeType: RESOURCE_MIME_TYPE,
-          // With sign-in on, the view gets a short-lived token for /api (cookies don't reach the host's
-          // sandbox); it asks for a fresh one with get_view_token when it runs out.
-          text: viewHtml(ORIGIN, { token: auth && extra?.authInfo?.extra?.user ? auth.viewToken(extra.authInfo.extra.user, extra.authInfo.clientId).token : undefined }),
+          // With sign-in on, the view needs a token for /api (cookies don't reach the host's sandbox). It
+          // is not put in this HTML, which hosts cache and may share; the view asks for one through the
+          // host with get_view_token (site/host.js).
+          text: viewHtml(),
           _meta: {
             ui: {
               // The view loads the site's own scripts and styles and calls its /api, so only this
@@ -484,9 +485,12 @@ function makeServer() {
 const app = express();
 app.disable("x-powered-by");
 // Behind a reverse proxy, the client's address (for rate limits on sign-in endpoints) comes from
-// X-Forwarded-For. By default only proxies on private networks are trusted; TRUST_PROXY overrides.
-app.set("trust proxy", process.env.TRUST_PROXY ?? "loopback, linklocal, uniquelocal");
-app.use(express.json({ limit: "1mb" }));
+// X-Forwarded-For. By default only a proxy on this machine is trusted; behind one on another address
+// (a Docker network, say) set TRUST_PROXY to it, e.g. "uniquelocal" or its IP.
+app.set("trust proxy", process.env.TRUST_PROXY ?? "loopback");
+// Documents can be big; /register (open to anyone when sign-in is on) gets its own 8 KB parser in auth/.
+const json = express.json({ limit: "1mb" });
+app.use((req, res, next) => (req.path === "/register" ? next() : json(req, res, next)));
 
 // The view is served from the host's sandbox, so the site's files and API are fetched cross-origin.
 // Everything here is public (no cookies, no credentials), so any origin may read it.

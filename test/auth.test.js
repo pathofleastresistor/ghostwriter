@@ -192,6 +192,10 @@ describe("website sign-in", () => {
       idp.user = { sub: "u-guest2", name: "Guest", email: "guest@example.test", email_verified: false, groups: [] };
       const b2 = browser();
       assert.equal((await signIn(b2)).res.status, 403);
+      idp.user = { sub: "u-guest3", name: "Guest", email: "guest@example.test", groups: [] };
+      assert.equal((await signIn(browser())).res.status, 403, "a provider that doesn't say it verified the email");
+      idp.user = { sub: "u-da", name: "DA", email: "da@example.test", email_verified: true, groups: "Domain admins" };
+      assert.equal((await signIn(browser())).res.status, 403, "a groups claim given as one string is one group, not split on spaces");
     } finally {
       idp.user = saved;
     }
@@ -319,16 +323,16 @@ describe("MCP hosts (Claude, ChatGPT)", () => {
     await client.close();
   });
 
-  test("the editor view gets a token for /api, in its HTML and from get_view_token", async () => {
+  test("the editor view gets its token for /api from get_view_token, never in its (cacheable) HTML", async () => {
     const { client } = await connectHost(browser());
     const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
     const boot = JSON.parse(/window\.__GHOSTWRITER__=(\{.*?\});/.exec(contents[0].text)[1]);
     assert.equal(boot.auth, true);
-    assert.ok(boot.token);
+    assert.equal(boot.token, undefined, "hosts cache view HTML, and may share it");
     const r = await client.callTool({ name: "get_view_token", arguments: {} });
     const { token, expiresAt } = r.structuredContent;
     assert.ok(expiresAt > Date.now() / 1000 + 3000);
-    for (const t of [boot.token, token]) {
+    for (const t of [token]) {
       const docs = await fetch(`${ORIGIN}/api/docs`, { headers: { authorization: `Bearer ${t}`, origin: "https://sandbox.example" } });
       assert.equal(docs.status, 200);
       assert.equal(docs.headers.get("access-control-allow-origin"), "*");
@@ -482,5 +486,50 @@ describe("MCP hosts (Claude, ChatGPT)", () => {
     assert.doesNotMatch(text, /gw[ar]_[A-Za-z0-9_-]{20}/);
     assert.equal(fs.statSync(file).mode & 0o077, 0);
     assert.equal(fs.statSync(path.join(dir, "auth", "secret")).mode & 0o077, 0);
+  });
+});
+
+describe("open registration can't be abused", () => {
+  const reg = (body) => fetch(`${ORIGIN}/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+  test("a big registration is refused, and only the fields this server uses are kept", async () => {
+    const big = await reg({ client_name: "x", redirect_uris: ["https://a.example/cb"], contacts: ["x".repeat(20000)] });
+    assert.equal(big.status, 413);
+    const r = await reg({ client_name: "y".repeat(500), redirect_uris: ["https://a.example/cb"], contacts: ["c@example.test"], software_statement: "zzz", tos_uri: "https://a.example/tos" });
+    assert.equal(r.status, 201);
+    const { client_id } = await r.json();
+    const stored = JSON.parse(fs.readFileSync(path.join(dir, "auth", "state.json"), "utf8")).clients[client_id];
+    assert.equal(stored.client_name.length, 100);
+    for (const k of ["contacts", "software_statement", "tos_uri"]) assert.equal(stored[k], undefined, k);
+  });
+
+  test("an app's state value has a size limit", async () => {
+    const c = await (await reg({ client_name: "s", redirect_uris: [APP_REDIRECT], token_endpoint_auth_method: "none" })).json();
+    const u = new URL(`${ORIGIN}/authorize`);
+    for (const [k, v] of Object.entries({ response_type: "code", client_id: c.client_id, redirect_uri: APP_REDIRECT, code_challenge: "x".repeat(43), code_challenge_method: "S256", state: "s".repeat(2000) })) u.searchParams.set(k, v);
+    const r = await fetch(u, { redirect: "manual" });
+    assert.equal(new URL(r.headers.get("location")).searchParams.get("error"), "invalid_request");
+  });
+
+  test("a flood of registrations stops at a limit, without pushing out an app someone is approving", async () => {
+    const statuses = [];
+    // Each from a different address (as a proxy on this machine would say), so the per-address rate
+    // limit doesn't stop it first: this checks the overall cap.
+    for (let i = 0; i < 30; i++) {
+      const r = await fetch(`${ORIGIN}/register`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": `198.51.100.${i + 1}` }, body: JSON.stringify({ client_name: `spam ${i}`, redirect_uris: ["https://spam.example/cb"] }) });
+      statuses.push(r.status);
+    }
+    assert.ok(statuses.includes(400), `refused past the limit: ${statuses.join(" ")}`);
+    const kept = JSON.parse(fs.readFileSync(path.join(dir, "auth", "state.json"), "utf8")).clients;
+    assert.ok(Object.values(kept).some((c) => c.client_name === "Declined App"), "a recent registration is not evicted");
+    assert.ok(Object.values(kept).some((c) => c.client_name === "Rotating App"), "an approved app is never evicted");
+  });
+
+  test("a client id like __proto__ is just unknown", async () => {
+    const u = new URL(`${ORIGIN}/authorize`);
+    for (const [k, v] of Object.entries({ response_type: "code", client_id: "__proto__", redirect_uri: APP_REDIRECT, code_challenge: "x".repeat(43), code_challenge_method: "S256" })) u.searchParams.set(k, v);
+    const r = await fetch(u, { redirect: "manual" });
+    assert.equal(r.status, 400);
+    assert.equal((await r.json()).error, "invalid_client");
   });
 });

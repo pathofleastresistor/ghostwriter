@@ -1,6 +1,6 @@
 // What sign-in keeps on disk, in DATA_DIR/auth/state.json (owner-only file):
 //   clients  apps that registered themselves (OAuth dynamic client registration)
-//   grants   which person approved which app, keyed "<sub> <client_id>"
+//   grants   which person approved which app: grants[sub][client_id]
 //   tokens   access and refresh tokens, by SHA-256 hash (the tokens themselves are never stored)
 //   used     hashes of refresh tokens already swapped, to catch a stolen one being replayed
 // Authorization codes and sign-ins in progress live a few minutes and are kept in memory only.
@@ -35,36 +35,35 @@ export function createStore(dir) {
   return {
     state,
     save,
-    getClient: (id) => state.clients[id],
+    getClient: (id) => (typeof id === "string" && Object.hasOwn(state.clients, id) ? state.clients[id] : undefined),
     putClient(c) {
       state.clients[c.client_id] = c;
       save();
     },
     deleteClient(id) {
       delete state.clients[id];
-      for (const k of Object.keys(state.grants)) if (k.endsWith(" " + id)) delete state.grants[k];
+      for (const g of Object.values(state.grants)) delete g[id];
       for (const [h, tok] of Object.entries(state.tokens)) if (tok.clientId === id) delete state.tokens[h];
       save();
     },
-    grantKey: (sub, clientId) => `${sub} ${clientId}`,
     getGrant(sub, clientId) {
-      return state.grants[`${sub} ${clientId}`];
+      return Object.hasOwn(state.grants, sub) && Object.hasOwn(state.grants[sub], clientId) ? state.grants[sub][clientId] : undefined;
     },
     putGrant(sub, clientId, grant) {
-      state.grants[`${sub} ${clientId}`] = grant;
+      if (!Object.hasOwn(state.grants, sub)) Object.defineProperty(state.grants, sub, { value: {}, enumerable: true, writable: true, configurable: true });
+      Object.defineProperty(state.grants[sub], clientId, { value: grant, enumerable: true, writable: true, configurable: true });
       save();
     },
+    /** Every app some person approved. */
+    approvedClients: () => new Set(Object.values(state.grants).flatMap((g) => Object.keys(g))),
     /** Forgets an approval and every token issued under it. */
     deleteGrant(sub, clientId) {
-      delete state.grants[`${sub} ${clientId}`];
+      if (Object.hasOwn(state.grants, sub)) delete state.grants[sub][clientId];
       for (const [h, tok] of Object.entries(state.tokens)) if (tok.sub === sub && tok.clientId === clientId) delete state.tokens[h];
       save();
     },
-    grantsFor: (sub) =>
-      Object.entries(state.grants)
-        .filter(([k]) => k.startsWith(sub + " "))
-        .map(([k, g]) => ({ clientId: k.slice(sub.length + 1), ...g })),
-    getToken: (hash) => state.tokens[hash],
+    grantsFor: (sub) => (Object.hasOwn(state.grants, sub) ? Object.entries(state.grants[sub]).map(([clientId, g]) => ({ clientId, ...g })) : []),
+    getToken: (hash) => (Object.hasOwn(state.tokens, hash) ? state.tokens[hash] : undefined),
     putTokens(entries) {
       for (const [hash, tok] of entries) state.tokens[hash] = tok;
       save();
@@ -75,13 +74,13 @@ export function createStore(dir) {
       delete state.tokens[hash];
       if (tok) state.used[hash] = { family: tok.family, exp: tok.exp };
     },
-    usedRefresh: (hash) => state.used[hash],
+    usedRefresh: (hash) => (Object.hasOwn(state.used, hash) ? state.used[hash] : undefined),
     revokeFamily(family) {
       for (const [h, tok] of Object.entries(state.tokens)) if (tok.family === family) delete state.tokens[h];
       save();
     },
     touchGrant(sub, clientId) {
-      const g = state.grants[`${sub} ${clientId}`];
+      const g = Object.hasOwn(state.grants, sub) ? state.grants[sub][clientId] : undefined;
       if (g) g.lastUsed = now();
     },
   };

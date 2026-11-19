@@ -5,12 +5,16 @@
 // server: which apps exist, who approved them, and the tokens. People sign in at their own identity
 // provider (see index.js), so this works with any OpenID Connect provider, including ones that do not
 // let apps register themselves.
-import { InvalidClientMetadataError, InvalidGrantError, InvalidTargetError, InvalidTokenError, AccessDeniedError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
+import { InvalidClientMetadataError, InvalidGrantError, InvalidRequestError, InvalidTargetError, InvalidTokenError, AccessDeniedError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { randomToken, sha256, now } from "./util.js";
 
-const MAX_CLIENTS = 100;
-const UNUSED_CLIENT_TTL = 7 * 24 * 3600; // an app registered but never approved is forgotten after a week
+const MAX_CLIENTS = 100; // in all
+const MAX_UNAPPROVED = 20; // registered but not (yet) approved by anyone
+const UNUSED_CLIENT_TTL = 24 * 3600; // an app nobody approved is forgotten after a day
+const YOUNG_CLIENT = 15 * 60; // ...but never while someone may still be signing in to approve it
 const PENDING_TTL = 10 * 60; // time to sign in and approve
+const MAX_PENDING = 500;
+const MAX_STATE = 1024; // the app's own "state" value, echoed back to it
 const CODE_TTL = 60;
 const BAD_SCHEMES = new Set(["javascript:", "data:", "file:", "vbscript:", "blob:", "about:", "ftp:", "ws:", "wss:"]);
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -60,20 +64,37 @@ export function createProvider({ store, resource, origin, accessTtl, refreshTtl,
       for (const u of uris) if (!redirectAllowed(u)) throw new InvalidClientMetadataError(`Not an allowed redirect_uri: ${u}. Use https, http on localhost, or an app's own scheme.`);
       if ((info.grant_types ?? ["authorization_code"]).some((g) => !["authorization_code", "refresh_token"].includes(g))) throw new InvalidClientMetadataError("Only the authorization_code and refresh_token grants are supported.");
       // Room for this one: drop apps nobody approved, oldest first.
+      for (const u of uris) if (u.length > 500) throw new InvalidClientMetadataError("redirect_uri is too long.");
+      const method = info.token_endpoint_auth_method ?? "client_secret_basic";
+      if (!["none", "client_secret_post", "client_secret_basic"].includes(method)) throw new InvalidClientMetadataError("token_endpoint_auth_method must be none, client_secret_post or client_secret_basic.");
+      // Forget apps nobody approved after a day. Spam can't push out an app someone is approving
+      // right now: young ones are kept, and a new registration is refused instead.
       const t = now();
-      const approved = new Set(Object.keys(store.state.grants).map((k) => k.slice(k.indexOf(" ") + 1)));
-      const unused = Object.values(store.state.clients)
-        .filter((c) => !approved.has(c.client_id))
-        .sort((a, b) => (a.client_id_issued_at ?? 0) - (b.client_id_issued_at ?? 0));
-      for (const c of unused) if ((c.client_id_issued_at ?? 0) + UNUSED_CLIENT_TTL < t) store.deleteClient(c.client_id);
-      const left = unused.filter((c) => store.getClient(c.client_id));
-      while (Object.keys(store.state.clients).length >= MAX_CLIENTS && left.length) store.deleteClient(left.shift().client_id);
-      if (Object.keys(store.state.clients).length >= MAX_CLIENTS) throw new InvalidClientMetadataError("Too many apps are connected to this server. Disconnect one first.");
+      const approved = store.approvedClients();
+      const unapproved = () =>
+        Object.values(store.state.clients)
+          .filter((c) => !approved.has(c.client_id))
+          .sort((a, b) => (a.client_id_issued_at ?? 0) - (b.client_id_issued_at ?? 0));
+      for (const c of unapproved()) if ((c.client_id_issued_at ?? 0) + UNUSED_CLIENT_TTL < t) store.deleteClient(c.client_id);
+      for (const c of unapproved()) {
+        if (unapproved().length < MAX_UNAPPROVED && Object.keys(store.state.clients).length < MAX_CLIENTS) break;
+        if ((c.client_id_issued_at ?? 0) + YOUNG_CLIENT > t) break;
+        store.deleteClient(c.client_id);
+      }
+      if (unapproved().length >= MAX_UNAPPROVED || Object.keys(store.state.clients).length >= MAX_CLIENTS) throw new InvalidClientMetadataError("Too many apps are waiting to be connected. Try again later.");
+      // Keep only what this server uses, each capped: registration is open to anyone.
+      const str = (v, max) => (typeof v === "string" && v.length ? v.slice(0, max) : undefined);
       const client = {
-        ...info,
-        client_name: String(info.client_name ?? "").slice(0, 100) || undefined,
         client_id: info.client_id ?? randomToken(18),
         client_id_issued_at: info.client_id_issued_at ?? t,
+        client_secret: info.client_secret,
+        client_secret_expires_at: info.client_secret_expires_at,
+        client_name: str(info.client_name, 100),
+        client_uri: str(info.client_uri, 300),
+        redirect_uris: uris,
+        token_endpoint_auth_method: method,
+        grant_types: info.grant_types ?? ["authorization_code", "refresh_token"],
+        response_types: ["code"],
       };
       store.putClient(client);
       return client;
@@ -105,6 +126,8 @@ export function createProvider({ store, resource, origin, accessTtl, refreshTtl,
     // signs the person in first if needed (index.js).
     async authorize(client, params, res) {
       sweep();
+      if (params.state !== undefined && String(params.state).length > MAX_STATE) throw new InvalidRequestError("state is too long.");
+      while (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value); // oldest first
       const id = randomToken(18);
       pending.set(id, {
         clientId: client.client_id,
@@ -188,6 +211,7 @@ export function createProvider({ store, resource, origin, accessTtl, refreshTtl,
     const prev = store.getGrant(user.sub, p.clientId);
     store.putGrant(user.sub, p.clientId, { approvedAt: prev?.approvedAt ?? now(), lastUsed: now() });
     const code = randomToken(32);
+    if (codes.size >= MAX_PENDING) codes.delete(codes.keys().next().value);
     codes.set(sha256(code), { clientId: p.clientId, redirectUri: p.redirectUri, codeChallenge: p.codeChallenge, scopes: p.scopes, resource: p.resource, user, exp: now() + CODE_TTL });
     const u = new URL(p.redirectUri);
     u.searchParams.set("code", code);

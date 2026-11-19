@@ -13,6 +13,8 @@ const STYLE = `
   .logo i:nth-child(3) { height: 40%; background: var(--violet, #5b3fd1); }
   h1 { margin: 0 0 12px; font: 600 22px/28px var(--font-display, system-ui, sans-serif); overflow-wrap: anywhere; }
   p { margin: 0 0 12px; color: var(--ink-muted, #555c6e); overflow-wrap: anywhere; }
+  .dest { margin: 0 0 16px; padding: 10px 14px; border-radius: 8px; background: var(--violet-soft, #e8e3fb); color: var(--ink, #12151c); font-size: 15px; }
+  .dest b { font: 600 15px/22px var(--font-mono, monospace); overflow-wrap: anywhere; }
   .who { margin: 16px 0; padding: 12px 16px; border-radius: 8px; background: var(--ground, #f3f4f7); font-size: 14px; line-height: 20px; }
   .who b { color: var(--ink, #12151c); font-weight: 600; }
   .row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; flex-wrap: wrap; }
@@ -69,9 +71,10 @@ export function consentPage({ id, client, redirectUri, user, csrf }) {
   return page(
     "Allow access",
     `<h1>Allow ${e(name)} to use Ghostwriter?</h1>
+    <p class="dest">It will send you back to <b>${e(where)}</b></p>
     <p>It will be able to read, edit, create and remove documents in this Ghostwriter, as you.</p>
-    <div class="who">Signed in as <b>${e(user.name || user.email || user.sub)}</b>${user.email && user.name !== user.email ? `<br>${e(user.email)}` : ""}<br>After you choose, you go back to <b>${e(where)}</b>.</div>
-    <p>Only allow apps you added yourself. You can disconnect it later from Ghostwriter's menu.</p>
+    <div class="who">Signed in as <b>${e(user.name || user.email || user.sub)}</b>${user.email && user.name !== user.email ? `<br>${e(user.email)}` : ""}</div>
+    <p>Only allow it if you just added this app yourself and that address is the app you expect. The name is chosen by the app, so it can say anything. You can disconnect it later from Ghostwriter's menu.</p>
     <div class="row">
       <form method="post" action="/auth/consent/${e(id)}"><input type="hidden" name="csrf" value="${e(csrf)}"><input type="hidden" name="decision" value="deny"><button class="secondary" type="submit">Cancel</button></form>
       <form method="post" action="/auth/consent/${e(id)}"><input type="hidden" name="csrf" value="${e(csrf)}"><input type="hidden" name="decision" value="allow"><button class="primary" type="submit" autofocus>Allow</button></form>

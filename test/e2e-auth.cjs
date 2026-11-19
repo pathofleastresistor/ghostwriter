@@ -109,17 +109,20 @@ async function up(url) {
       let body = "";
       for await (const c of req) body += c;
       const { name, arguments: a } = JSON.parse(body);
-      if (name === "get_view_token") viewTokenCalls.push(Date.now());
       res.setHeader("content-type", "application/json");
-      return res.end(JSON.stringify(await client.callTool({ name, arguments: a })));
+      const result = await client.callTool({ name, arguments: a });
+      if (name === "get_view_token") {
+        viewTokenCalls.push(Date.now());
+        // The first token is one the server won't take (as if it had expired): the view has to renew it.
+        if (viewTokenCalls.length === 1) result.structuredContent = { ...result.structuredContent, token: "stale.token" };
+      }
+      return res.end(JSON.stringify(result));
     }
     if (req.url === "/view") {
       const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
-      // An expired or cached token: the view has to get a new one through the host.
-      const text = contents[0].text.replace(/"token":"[^"]+"/, '"token":"stale.token"');
-      assert.notEqual(text, contents[0].text, "the view came with a token");
+      assert.doesNotMatch(contents[0].text, /"token"/, "no token in the view's HTML (hosts cache it)");
       res.setHeader("content-type", "application/json");
-      return res.end(JSON.stringify({ text, meta: contents[0]._meta }));
+      return res.end(JSON.stringify({ text: contents[0].text, meta: contents[0]._meta }));
     }
     if (req.url === "/host.js") return res.setHeader("content-type", "text/javascript"), res.end(hostJs);
     res.setHeader("content-type", "text/html");
@@ -193,9 +196,9 @@ async function up(url) {
     const frame = page.frameLocator("#app");
     await page.evaluate(() => window.__openApp({}));
     await frame.locator(".doc-card", { hasText: "Private notes" }).waitFor({ timeout: 10000 });
-    assert.ok(viewTokenCalls.length >= 1, "the view renewed its token through the host");
+    assert.ok(viewTokenCalls.length >= 2, `the view got a token through the host, and renewed the one that didn't work (${viewTokenCalls.length} calls)`);
     assert.equal(await frame.locator("#signin").isHidden(), true);
-    console.log("ok  the view, given a token the server refuses, renews it through the host and shows the documents");
+    console.log("ok  the view gets its token through the host, renews one the server refuses, and shows the documents");
 
     await frame.locator(".doc-open", { hasText: "Private notes" }).click();
     await frame.locator("#editor").getByText("Only signed-in people see this.").waitFor({ timeout: 8000 });

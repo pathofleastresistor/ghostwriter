@@ -64,14 +64,14 @@ Everyone who can sign in shares one library of documents.
 | `OIDC_CLIENT_ID` | yes | The client you created. |
 | `OIDC_CLIENT_SECRET` or `OIDC_CLIENT_SECRET_FILE` | for a confidential client | Its secret, or a file holding it. |
 | `OIDC_ALLOWED_GROUPS` | one of these three | Groups whose members may sign in (comma-separated), from the `groups` claim. |
-| `OIDC_ALLOWED_EMAILS` | | Email addresses that may sign in. Only counted when the provider says the email is verified. |
+| `OIDC_ALLOWED_EMAILS` | | Email addresses that may sign in. Only counted when the provider says the email is verified (`email_verified: true`); otherwise use groups. |
 | `OIDC_ALLOW_ANY_USER` | | `true`: anyone your provider signs in. Only for a provider that is itself limited to your people. |
 | `OIDC_GROUPS_CLAIM` | no | Claim that lists groups. Default `groups`. |
 | `OIDC_SCOPES` | no | Scopes to ask for. Default `openid profile email`, plus `groups` when groups decide. |
 | `SESSION_DAYS` | no | Website session length. Default 7. |
 | `OAUTH_ACCESS_MINUTES` / `OAUTH_REFRESH_DAYS` | no | Lifetime of an app's access token (default 60) and of its sign-in (default 30 days; then the person signs in again). |
 | `SESSION_SECRET` | no | Signs cookies and editor tokens. Default: a random one made once and kept in `DATA_DIR/auth/secret`. |
-| `TRUST_PROXY` | no | Which proxies' `X-Forwarded-For` to trust, for rate limits ([Express's setting](https://expressjs.com/en/guide/behind-proxies.html)). Default: proxies on private networks. |
+| `TRUST_PROXY` | behind a proxy | Which proxies' `X-Forwarded-For` to trust, so the sign-in endpoints' rate limits see real addresses ([Express's setting](https://expressjs.com/en/guide/behind-proxies.html)). Default `loopback` (a proxy on the same machine). Behind a proxy in another container, set its address or network, for example `uniquelocal`, and don't publish Ghostwriter's own port. |
 
 Ghostwriter refuses to start if sign-in is half set up (an issuer but no allowlist, or http on a public address), rather than starting open.
 

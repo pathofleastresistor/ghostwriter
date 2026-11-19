@@ -105,20 +105,22 @@ export function createAuth(cfg, { fetchImpl } = {}) {
   function allowed(user) {
     if (!user?.sub) return false;
     if (cfg.anyUser) return true;
-    if (emails.size && user.email && user.emailVerified !== false && emails.has(user.email.toLowerCase())) return true;
+    // An email only counts when the provider says it checked it: some let people type any address.
+    if (emails.size && user.email && user.emailVerified === true && emails.has(user.email.toLowerCase())) return true;
     return groups.size > 0 && Array.isArray(user.groups) && user.groups.some((g) => groups.has(g));
   }
 
   /** The few facts kept about a person, from the provider's claims. */
   function userFromClaims(c) {
     let g = c[cfg.groupsClaim];
-    if (typeof g === "string") g = g.split(/[,\s]+/);
+    if (typeof g === "string") g = [g]; // one group; never split ("Domain Admins" is not "Admins")
     return {
       sub: String(c.sub),
       name: String(c.name || c.preferred_username || c.email || c.sub).slice(0, 200),
       email: typeof c.email === "string" ? c.email.slice(0, 320) : undefined,
       emailVerified: c.email_verified === undefined ? undefined : c.email_verified === true || c.email_verified === "true",
-      groups: Array.isArray(g) ? g.filter((x) => typeof x === "string").slice(0, 50) : [],
+      // Only the groups that let the person in: keeps the session cookie small whatever the provider sends.
+      groups: Array.isArray(g) ? g.filter((x) => typeof x === "string" && groups.has(x)) : [],
     };
   }
 
@@ -215,6 +217,8 @@ export function createAuth(cfg, { fetchImpl } = {}) {
   /* ---------------------------- sign-in and approval ---------------------------- */
 
   const router = express.Router();
+  // Registration is open to anyone: a small body, parsed here before the app's 1 MB JSON parser.
+  router.use("/register", express.json({ limit: "8kb" }), (err, _req, res, next) => (err ? res.status(err.status ?? 400).json({ error: "invalid_client_metadata", error_description: err.status === 413 ? "The registration is too big." : "The registration is not valid JSON." }) : next()));
   const show = (res, status, html) => {
     pageHeaders(res);
     res.status(status).send(html);

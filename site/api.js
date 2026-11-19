@@ -8,15 +8,27 @@ import { note } from "./debuglog.js";
 //
 // Sign-in (optional, server side): on the website the session cookie goes with each same-origin
 // request on its own. Inside a host, cookies don't reach the sandbox, so the view sends a short-lived
-// token instead: the one in its boot script, then fresh ones from the host (setTokenSource, host.js).
+// token instead, which it gets from the server through the host (setTokenSource, host.js). The first
+// request waits for that, briefly.
 const BASE = (typeof window !== "undefined" && window.__GHOSTWRITER__?.origin) || "";
-let token = (typeof window !== "undefined" && window.__GHOSTWRITER__?.token) || null;
+const NEEDS_TOKEN = typeof window !== "undefined" && !!window.__GHOSTWRITER__?.embedded && !!window.__GHOSTWRITER__?.auth;
+let token = null;
 let tokenSource = null; // async () => a fresh token, or null
 let refreshing = null;
+let sourceReady;
+const sourceSet = new Promise((r) => (sourceReady = r));
 
-/** Inside a host: where to get a new token when the one we have is refused or missing. */
+/** Inside a host: where to get a token, at first and whenever the one we have is refused. */
 export function setTokenSource(fn) {
   tokenSource = fn;
+  sourceReady();
+}
+
+/** Inside a host with sign-in on: a token before the first request (or give up after a while). */
+async function firstToken() {
+  if (!NEEDS_TOKEN || token) return;
+  await Promise.race([sourceSet, new Promise((r) => setTimeout(r, 8000))]);
+  if (!token) await freshToken();
 }
 
 async function freshToken() {
@@ -49,6 +61,7 @@ export function createApi({ onUnauthorized } = {}) {
         throw e;
       }
     };
+    await firstToken();
     let r = await send();
     if (r.status === 401 && tokenSource && (await freshToken())) r = await send();
     // Routine polling is left out of the log unless it fails or changes something.
