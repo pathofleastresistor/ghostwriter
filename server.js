@@ -1,7 +1,9 @@
 // Ghostwriter as an MCP App: the website, plus a thin layer for MCP hosts such as Claude.
 //
-//   /                         the website (site/): home, editor, and /api (open, no sign-in)
-//   POST /mcp                 Streamable HTTP MCP endpoint (stateless). Open, like the rest: a public prototype.
+//   /                         the website (site/): home, editor, and /api
+//   POST /mcp                 Streamable HTTP MCP endpoint (stateless)
+//   /auth/*, /authorize, ...  optional sign-in (auth/): off unless OIDC_ISSUER is set. Off, everything
+//                             is open (a public prototype); on, the site, /api and /mcp need sign-in.
 //   /vendor/ext-apps.js       the MCP Apps SDK's browser bundle, served from here for the view
 //   GET  /healthz             liveness
 //
@@ -24,6 +26,7 @@ import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { Doc, SEED, ToolError, LIMITS } from "./site/model.js";
 import { buildTools } from "./site/tools.js";
 import { merge3 } from "./site/merge.js";
+import { readAuthConfig, createAuth } from "./auth/index.js";
 
 const DATA = process.env.DATA_DIR ?? path.join(import.meta.dirname, "data");
 const PORT = Number(process.env.PORT ?? 3010);
@@ -35,6 +38,12 @@ const SDK_FILE = path.join(import.meta.dirname, "node_modules", "@modelcontextpr
 const MAX_DOCS = 200;
 
 fs.mkdirSync(path.join(DATA, "docs"), { recursive: true });
+
+// Optional sign-in (see auth/index.js). Null when OIDC_ISSUER is not set: everything stays open.
+const auth = (() => {
+  const cfg = readAuthConfig(process.env, { origin: ORIGIN, dataDir: DATA });
+  return cfg ? createAuth(cfg) : null;
+})();
 
 /* ------------------------------ document store ----------------------------- */
 
@@ -343,6 +352,25 @@ function nextViewKey() {
 }
 
 const allTools = [...docTools, ...extraTools];
+
+/**
+ * With sign-in on: the editor view (not the model) calls this through the host to get a token for
+ * /api. It is the person's own MCP connection asking, so the token is theirs; it lasts an hour.
+ */
+const viewTokenTool = {
+  name: "get_view_token",
+  title: "Editor session",
+  description: "Used by the Ghostwriter editor view to load documents. Not for the assistant.",
+  inputSchema: { type: "object", properties: {} },
+  annotations: { readOnlyHint: true, consequentialHint: false },
+  _meta: { ui: { visibility: ["app"] } },
+  run: async (extra) => {
+    const user = extra?.authInfo?.extra?.user;
+    if (!user) return { content: [{ type: "text", text: "Not signed in." }], isError: true };
+    const { token, expiresAt } = auth.viewToken(user, extra.authInfo.clientId);
+    return { content: [{ type: "text", text: "Editor session ready." }], structuredContent: { token, expiresAt } };
+  },
+};
 const toolByName = new Map(allTools.map((t) => [t.name, t]));
 
 /** Runs one tool call. Document tools are rebuilt against the named document each time. */
@@ -388,11 +416,11 @@ function siteBuild() {
 }
 const BUILD = siteBuild();
 
-export function viewHtml(origin = ORIGIN) {
+export function viewHtml(origin = ORIGIN, { token } = {}) {
   const html = fs.readFileSync(path.join(SITE, "index.html"), "utf8");
   const absolute = html.replace(/\b(href|src)="\/(?!\/)/g, `$1="${origin}/`);
   // Set before anything paints, so the first frame already has the embedded layout (inline until the host says otherwise).
-  const boot = `<script>window.__GHOSTWRITER__=${JSON.stringify({ origin, embedded: true }).replace(/</g, "\\u003c")};window.__GHOSTWRITER_BUILD__=${JSON.stringify(BUILD)};document.documentElement.dataset.embedded="";document.documentElement.dataset.display="inline";</script>`;
+  const boot = `<script>window.__GHOSTWRITER__=${JSON.stringify({ origin, embedded: true, ...(auth ? { auth: true } : {}), ...(token ? { token } : {}) }).replace(/</g, "\\u003c")};window.__GHOSTWRITER_BUILD__=${JSON.stringify(BUILD)};document.documentElement.dataset.embedded="";document.documentElement.dataset.display="inline";</script>`;
   if (!absolute.includes("</head>")) throw new Error("site/index.html has no </head>");
   return absolute.replace("</head>", `  ${boot}\n</head>`);
 }
@@ -403,7 +431,7 @@ function makeServer() {
   const server = new Server({ name: "ghostwriter", version: "0.2.0" }, { capabilities: { tools: {}, resources: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: allTools.map((d) => ({
+    tools: [...allTools, ...(auth ? [viewTokenTool] : [])].map((d) => ({
       name: d.name,
       title: d.title,
       description: d.description,
@@ -413,20 +441,25 @@ function makeServer() {
     })),
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, (req) => runTool(req.params.name, req.params.arguments ?? {}));
+  server.setRequestHandler(CallToolRequestSchema, (req, extra) => {
+    if (auth && req.params.name === viewTokenTool.name) return viewTokenTool.run(extra);
+    return runTool(req.params.name, req.params.arguments ?? {});
+  });
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: [{ uri: UI_URI, name: "Ghostwriter editor", mimeType: RESOURCE_MIME_TYPE }],
   }));
 
-  server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+  server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     if (req.params.uri !== UI_URI) throw new Error(`Unknown resource: ${req.params.uri}`);
     return {
       contents: [
         {
           uri: UI_URI,
           mimeType: RESOURCE_MIME_TYPE,
-          text: viewHtml(),
+          // With sign-in on, the view gets a short-lived token for /api (cookies don't reach the host's
+          // sandbox); it asks for a fresh one with get_view_token when it runs out.
+          text: viewHtml(ORIGIN, { token: auth && extra?.authInfo?.extra?.user ? auth.viewToken(extra.authInfo.extra.user, extra.authInfo.clientId).token : undefined }),
           _meta: {
             ui: {
               // The view loads the site's own scripts and styles and calls its /api, so only this
@@ -450,6 +483,9 @@ function makeServer() {
 
 const app = express();
 app.disable("x-powered-by");
+// Behind a reverse proxy, the client's address (for rate limits on sign-in endpoints) comes from
+// X-Forwarded-For. By default only proxies on private networks are trusted; TRUST_PROXY overrides.
+app.set("trust proxy", process.env.TRUST_PROXY ?? "loopback, linklocal, uniquelocal");
 app.use(express.json({ limit: "1mb" }));
 
 // The view is served from the host's sandbox, so the site's files and API are fetched cross-origin.
@@ -459,7 +495,7 @@ app.use((req, res, next) => {
   res.set({
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400",
   });
   if (req.method === "OPTIONS") return res.sendStatus(204);
@@ -473,7 +509,11 @@ app.get("/vendor/ext-apps.js", (_req, res) => {
   res.type("text/javascript").set("Cache-Control", "public, max-age=3600").send(fs.readFileSync(SDK_FILE));
 });
 
-app.all("/mcp", async (req, res) => {
+// Sign-in pages, the OAuth endpoints and their metadata (only when sign-in is on).
+if (auth) app.use(auth.router);
+
+const mcpGuard = auth ? auth.mcpGuard : (_req, _res, next) => next();
+app.all("/mcp", mcpGuard, async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).set("Allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null });
   }
@@ -492,13 +532,16 @@ app.all("/mcp", async (req, res) => {
   }
 });
 
-// The website's editor. Open on purpose: the web app is a public prototype, so anyone who can reach
-// the site can read, edit and remove documents, and so can anyone who adds the /mcp connector.
+// The website's editor. Without sign-in it is open on purpose (a public prototype): anyone who can
+// reach the site can read, edit and remove documents, and so can anyone who adds the /mcp connector.
+// With sign-in on, auth.apiGuard in front of it lets only signed-in, allowed people through.
 const api = express.Router();
 api.use((_req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
 });
+if (auth) api.use("/session", auth.session);
+else api.get("/session", (_req, res) => res.json({ auth: false, user: null }));
 const send = (res, fn) =>
   serial(async () => {
     try {
@@ -529,7 +572,7 @@ api.get("/docs/:id", (req, res) =>
 api.delete("/docs/:id", (req, res) => send(res, () => (removeDoc(req.params.id), listFull())));
 api.get("/docs/:id/pull", (req, res) => send(res, () => pullDoc(req.params.id, Number.parseInt(req.query.since ?? "-1", 10))));
 api.post("/docs/:id/push", (req, res) => send(res, () => pushDoc(req.params.id, req.body?.base, req.body?.snapshot)));
-app.use("/api", api);
+app.use("/api", ...(auth ? [auth.apiGuard] : []), api);
 
 // The website itself, so one app answers the whole domain.
 app.use(express.static(SITE, { extensions: ["html"], dotfiles: "allow", setHeaders: (res) => res.setHeader("Cache-Control", "no-store") }));
@@ -537,7 +580,7 @@ app.use(express.static(SITE, { extensions: ["html"], dotfiles: "allow", setHeade
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   const HOST = process.env.HOST ?? "127.0.0.1";
   app.listen(PORT, HOST, () => {
-    console.log(`ghostwriter listening on ${HOST}:${PORT} with ${store.size} documents`);
+    console.log(`ghostwriter listening on ${HOST}:${PORT} with ${store.size} documents; ${auth ? auth.describe() : "sign-in off (open to anyone who can reach it)"}`);
     console.log("MCP endpoint path: /mcp");
   });
 }

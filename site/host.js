@@ -12,6 +12,7 @@ import { note } from "./debuglog.js";
 
 import { createElection } from "./supersede.js";
 import { isUnsupported } from "./ask.js";
+import { setTokenSource } from "./api.js";
 
 export const TOOL_PREFIX = "editor_";
 
@@ -119,6 +120,15 @@ export async function connectHost({ tools, isOpen, openDocument, goHome, getStat
 
   await app.connect();
   note("host", "connected to the host");
+  // With sign-in on, /api needs a token. The view came with one; when it runs out, ask the server
+  // for another through the host (the host's own sign-in proves who this is).
+  if (window.__GHOSTWRITER__?.auth) {
+    setTokenSource(async () => {
+      const r = await app.callServerTool({ name: "get_view_token", arguments: {} });
+      note("host", r?.isError ? "could not renew the editor session" : "renewed the editor session");
+      return r?.isError ? null : (r?.structuredContent?.token ?? null);
+    });
+  }
   layout();
   election.start(app.getHostContext?.()?.toolInfo?.id);
 
