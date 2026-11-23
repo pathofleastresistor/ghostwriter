@@ -320,7 +320,26 @@ const api_delete = (id) => fetch(`http://127.0.0.1:3011/api/docs/${id}`, { metho
           }
           return false;
         }, text);
+      // selecting text with the mouse offers a "Comment" button once the mouse is let go
+      const bubble = p.locator("#sel-comment");
+      const leafBox = await p.locator("#editor [data-id]", { hasText: "Bring snacks." }).last().boundingBox();
+      await p.mouse.move(leafBox.x + 2, leafBox.y + leafBox.height / 2);
+      await p.mouse.down();
+      await p.mouse.move(leafBox.x + Math.min(120, leafBox.width - 4), leafBox.y + leafBox.height / 2, { steps: 6 });
+      await sleep(150);
+      assert.equal(await bubble.isVisible(), false, "no button while the mouse is still dragging");
+      await p.mouse.up();
+      await bubble.waitFor({ state: "visible" });
+      const bb = await bubble.boundingBox();
+      assert.ok(bb.y >= leafBox.y + leafBox.height - 2, "the button sits below the selection");
+      await p.screenshot({ path: path.join(shots, "7-select-comment.png") });
+      await bubble.click();
+      await p.locator("#c-new textarea").waitFor({ state: "visible" });
+      assert.equal(await bubble.isVisible(), false, "the button goes away once the comment box opens");
+      console.log("ok  selecting text shows a Comment button beside it, which opens a new comment");
+
       assert.ok(await selectText("Bring snacks."));
+      await bubble.waitFor({ state: "visible" });
       await p.locator("#comment-btn").click();
       const draftBox = p.locator("#c-new textarea");
       await draftBox.waitFor({ state: "visible" });
