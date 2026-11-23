@@ -9,7 +9,7 @@
 
 import { merge3 } from "./merge.js";
 
-export function createSync({ doc, view, tools, transport, onLoad = () => {}, onState = () => {}, onGone = () => {}, pollMs = 1000, pushMs = 500 }) {
+export function createSync({ doc, view, tools, transport, onLoad = () => {}, onState = () => {}, onGone = () => {}, onPulled = () => {}, pollMs = 1000, pushMs = 500 }) {
   let id = null;
   let serverRev = 0;
   let dirty = false;
@@ -110,6 +110,7 @@ export function createSync({ doc, view, tools, transport, onLoad = () => {}, onS
       const res = await transport.pull(mine, serverRev);
       lastPullAt = Date.now();
       lastError = "";
+      if (mine === id) onPulled(res); // the comments' revision rides along (comments-view.js)
       if (mine !== id || epoch !== askedAt || dirty || pushing) return; // stale: try again next time
       if (res.snapshot) return load(res.snapshot, view.captureCaret());
       for (const c of res.changes ?? []) {
@@ -174,6 +175,15 @@ export function createSync({ doc, view, tools, transport, onLoad = () => {}, onS
       dirty = false;
     },
     pullNow: pull,
+    /** Save now and wait for it, so the server has the text the person sees (before commenting on it). */
+    async flush() {
+      for (let i = 0; i < 40 && (dirty || pushing); i++) {
+        if (dirty && !pushing) {
+          clearTimeout(pushTimer);
+          await push();
+        } else await new Promise((r) => setTimeout(r, 50));
+      }
+    },
     /** What the debug panel shows. */
     status: () => ({ id, serverRev, dirty, pushing, pulling, lastPullAt, lastPushAt, lastError }),
   };

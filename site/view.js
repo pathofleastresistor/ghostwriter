@@ -70,13 +70,14 @@ function tick(strong = false) {
 /* --------------------------------- the view -------------------------------- */
 
 export class View {
-  constructor(doc, { root, onStatus, onHistory, onShape, onSelection }) {
+  constructor(doc, { root, onStatus, onHistory, onShape, onSelection, onRender }) {
     this.doc = doc;
     this.root = root;
     this.onStatus = onStatus ?? (() => {});
     this.onHistory = onHistory ?? (() => {});
     this.onShape = onShape ?? (() => {});
     this.onSelection = onSelection ?? (() => {});
+    this.onRender = onRender ?? null;
     this.lastSel = null;
     this.queue = [];
     this.running = false;
@@ -157,6 +158,7 @@ export class View {
     this.paintRemembered();
     this.onSelection(null);
     this.updateEmpty();
+    this.onRender?.();
     if (focus && this.leaf(focus.id)) this.focusLeaf(focus.id, focus.offset);
   }
 

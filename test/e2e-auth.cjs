@@ -119,7 +119,7 @@ async function up(url) {
       return res.end(JSON.stringify(result));
     }
     if (req.url === "/view") {
-      const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
+      const { contents } = await client.readResource({ uri: "ui://ghostwriter/v3/editor.html" });
       assert.doesNotMatch(contents[0].text, /"token"/, "no token in the view's HTML (hosts cache it)");
       res.setHeader("content-type", "application/json");
       return res.end(JSON.stringify({ text: contents[0].text, meta: contents[0]._meta }));

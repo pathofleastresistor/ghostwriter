@@ -77,8 +77,8 @@ test("directory annotations: every tool over MCP has a title, readOnlyHint, and 
 test("open_document carries the view, and is an entry point people can open from Claude's Artifacts page", async () => {
   const { tools } = await client.listTools();
   const open = tools.find((t) => t.name === "open_document");
-  assert.equal(open._meta.ui.resourceUri, "ui://ghostwriter/v2/editor.html");
-  assert.equal(open._meta["ui/resourceUri"], "ui://ghostwriter/v2/editor.html");
+  assert.equal(open._meta.ui.resourceUri, "ui://ghostwriter/v3/editor.html");
+  assert.equal(open._meta["ui/resourceUri"], "ui://ghostwriter/v3/editor.html");
   assert.deepEqual(open._meta["openai/ui"], { entrypoints: [{ type: "global" }] });
   assert.ok(open.title.length <= 60 && !/claude|anthropic/i.test(open.title));
   assert.doesNotMatch(open.name, /__|\.\.|\._|_\./, "a name the entry point accepts");
@@ -105,7 +105,7 @@ test("open_document says a new card isn't needed after an edit, describing what 
 });
 
 test("the view is the website's own page, with absolute URLs and the right permissions", async () => {
-  const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
+  const { contents } = await client.readResource({ uri: "ui://ghostwriter/v3/editor.html" });
   const c = contents[0];
   assert.match(c.mimeType, /mcp-app/);
   const site = fs.readFileSync(path.join(import.meta.dirname, "..", "site", "index.html"), "utf8");
@@ -346,7 +346,7 @@ test("removed documents can be brought back for 30 days, then they are deleted f
 });
 
 test("every deploy is identifiable and never served stale: the view carries a build id and site files revalidate", async () => {
-  const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
+  const { contents } = await client.readResource({ uri: "ui://ghostwriter/v3/editor.html" });
   assert.match(contents[0].text, /window\.__GHOSTWRITER_BUILD__="[0-9a-f]{8}"/);
   const res = await fetch(`${url}/main.js`);
   assert.equal(res.headers.get("cache-control"), "no-store");

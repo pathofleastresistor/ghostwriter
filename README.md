@@ -91,7 +91,7 @@ Provider notes:
 
 ## Tools
 
-`list_documents`, `create_document`, `open_document`, `get_document`, `get_section`, `find_nodes`, `replace_text`, `replace_nodes`, `insert_nodes`, `insert_list_items`, `delete_nodes`, `set_title`. Inside the app view the assistant also gets `editor_*` tools that work on the open document, including what you have selected. Edit tools take an optional `expected_revision` and return the nodes they removed and added. Every tool declares whether it is read-only, and document text is marked as untrusted so it is never treated as instructions.
+`list_documents`, `create_document`, `open_document`, `get_document`, `get_section`, `find_nodes`, `replace_text`, `replace_nodes`, `insert_nodes`, `insert_list_items`, `delete_nodes`, `set_title`, and for comments `list_comments`, `list_comment_requests`, `add_comment`, `reply_to_comment`, `set_comment_status`, `replace_commented_text`. Inside the app view the assistant also gets `editor_*` tools that work on the open document, including what you have selected. Edit tools take an optional `expected_revision` and return the nodes they removed and added. Every tool declares whether it is read-only, and document text is marked as untrusted so it is never treated as instructions.
 
 ## How it works
 

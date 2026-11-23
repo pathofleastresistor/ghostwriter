@@ -437,3 +437,68 @@ html[data-display="inline"] .signin { min-height: 320px; }
 
 .signin-links { margin: 16px 0 0; font-size: 14px; color: var(--ink-muted); }
 .signin-links a { color: var(--violet-text); }
+
+/* Comments (comments-view.js). Nothing here moves: no transitions, no animation. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+::highlight(gw-comment) { background-color: #fff0b8; color: var(--ink); text-decoration: underline dotted #8a6400; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+::highlight(gw-comment-focus) { background-color: #ffd966; color: var(--ink); text-decoration: underline solid #6b4d00; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+/* A comment on a whole block, or a browser without highlights: a bar in the margin, outside the text. */
+.editor .c-mark { box-shadow: -10px 0 0 -6px #d9a300; }
+.editor .c-mark-focus { box-shadow: -10px 0 0 -5px #8a6400; }
+.here-chip { flex: none; border: 0; cursor: pointer; font: inherit; }
+.here-chip:focus-visible, .stat-btn:focus-visible, .c-link:focus-visible, .c-filter:focus-visible, .c-quote:focus-visible, .c-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.stat-btn { all: unset; cursor: pointer; padding: 0 6px; border-radius: var(--radius-sm); color: var(--ink); }
+.stat-btn:hover { background: var(--sunken); }
+.tab-count { font: 600 11px/16px var(--font-mono); color: var(--ink-muted); }
+.rail-close { margin-left: auto; }
+.btn-xs { height: 30px; padding: 0 10px; font-size: 13px; }
+.comments { display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-3); }
+.c-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.c-filter { height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink-muted); font: 600 12px/16px var(--font-sans); cursor: pointer; }
+.c-filter[aria-pressed="true"] { background: var(--violet-soft); border-color: transparent; color: var(--violet-text); }
+.c-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.c-group { margin: var(--space-2) 0 0; font: 600 11px/16px var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-muted); }
+.c-card { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.c-card.is-focused { border-color: #8a6400; box-shadow: inset 3px 0 0 #d9a300; }
+.c-card.is-resolved { background: var(--ground); }
+.c-draft { border-color: var(--line-strong); }
+.c-quote { all: unset; display: block; cursor: pointer; padding: 2px 0 2px 10px; border-left: 3px solid #d9a300; color: var(--ink-muted); font: italic 400 13px/18px var(--font-sans); overflow-wrap: anywhere; }
+.c-quote:hover { color: var(--ink); }
+.c-quote-static { cursor: default; }
+.c-quote-gone { cursor: default; border-left-color: var(--line-strong); display: flex; flex-direction: column; gap: 2px; }
+.c-gone { font: 600 12px/16px var(--font-sans); font-style: normal; color: var(--danger-text); }
+.c-msgs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.c-msg { display: flex; flex-direction: column; gap: 4px; }
+.c-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.c-meta strong { color: var(--ink); font-weight: 600; font-size: 13px; }
+.c-ai { height: 18px; padding: 0 6px; font-size: 11px; }
+.c-time { color: var(--ink-muted); }
+.rail p.c-body { margin: 0; color: var(--ink); font: 400 14px/20px var(--font-sans); white-space: pre-wrap; overflow-wrap: anywhere; }
+.c-acts, .c-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.c-row .grow { min-width: 0; }
+.c-link { all: unset; cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); color: var(--violet-text); font: 600 12px/16px var(--font-sans); }
+.c-link:hover { background: var(--violet-soft); }
+.c-link[disabled] { color: var(--ink-muted); cursor: not-allowed; background: none; }
+.c-ask { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.c-req { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: var(--space-2); border-radius: 8px; background: var(--ground); }
+.rail p.c-note, .c-note { margin: 0; font: 400 12px/16px var(--font-sans); color: var(--ink-muted); }
+.c-diff { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.rail .c-diff p { margin: 0; padding: 4px 8px; border-radius: 6px; font: 400 13px/18px var(--font-sans); overflow-wrap: anywhere; }
+.c-diff .old { background: var(--danger-soft); color: var(--danger-text); text-decoration: line-through; }
+.c-diff .new { background: var(--good-soft); color: var(--good-text); }
+.c-reply { display: flex; flex-direction: column; gap: 6px; padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.c-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font: 400 14px/20px var(--font-sans); }
+.c-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.c-reply .c-input:not(:focus):placeholder-shown { min-height: 36px; height: 36px; }
+.c-card, .c-card *, .c-filter, .c-link, .stat-btn, .here-chip { transition: none !important; animation: none !important; }
+
+/* Phones and narrow windows: the open panel is a sheet over the bottom of the page. */
+@media (max-width: 900px) {
+  .workspace:not(.rail-collapsed) .rail { position: fixed; left: 0; right: 0; bottom: var(--statusbar); z-index: 40; max-height: 70dvh; overflow-y: auto; border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 24px rgba(18,21,28,0.18); }
+  .c-filter, .c-link, .stat-btn, .btn-xs { min-height: 44px; }
+  .here-chip { display: inline-flex; }
+}
+/* A small card in the conversation has no panel; "Open larger" shows the comments. */
+html[data-embedded][data-display="inline"] #comment-btn,
+html[data-embedded][data-display="inline"] #here-chip,
+html[data-embedded][data-display="inline"] #stat-comments { display: none; }
