@@ -59,6 +59,21 @@ test("tools: every document tool takes a document_id; library tools exist; scree
   assert.ok(!(by.open_document.inputSchema.required ?? []).includes("document_id"), "no argument means the list");
 });
 
+test("directory annotations: every tool over MCP has a title, readOnlyHint, and destructiveHint on writes", async () => {
+  const { tools } = await client.listTools();
+  for (const t of tools) {
+    assert.ok(t.title, `${t.name} needs a title`);
+    assert.ok(t.name.length <= 64, `${t.name} is too long`);
+    assert.equal(typeof t.annotations?.readOnlyHint, "boolean", t.name);
+    if (!t.annotations.readOnlyHint) assert.equal(typeof t.annotations.destructiveHint, "boolean", `${t.name} must set destructiveHint`);
+  }
+  const by = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
+  assert.equal(by.create_document.destructiveHint, false);
+  assert.equal(by.insert_nodes.destructiveHint, false);
+  assert.equal(by.delete_nodes.destructiveHint, true);
+  assert.equal(by.replace_text.destructiveHint, true);
+});
+
 test("open_document carries the view, and is an entry point people can open from Claude's Artifacts page", async () => {
   const { tools } = await client.listTools();
   const open = tools.find((t) => t.name === "open_document");
@@ -80,11 +95,13 @@ test("open_document stamps each result with an increasing election key, so older
   assert.ok(b.createdAt >= a.createdAt && c.createdAt >= b.createdAt, "createdAt never goes back");
 });
 
-test("open_document tells the model not to re-open after every edit", async () => {
+test("open_document says a new card isn't needed after an edit, describing what it does rather than ordering the model", async () => {
   const { tools } = await client.listTools();
   const d = tools.find((t) => t.name === "open_document").description;
-  assert.match(d, /Do not call it again after each edit/);
-  assert.match(d, /older cards switch themselves off/);
+  assert.match(d, /a new card isn't needed after an edit/);
+  assert.match(d, /older cards stop updating/);
+  // Anthropic's directory rejects tool descriptions that tell Claude how to behave.
+  assert.doesNotMatch(d, /\b(Do not|Don't|Never|Always|You must)\b/);
 });
 
 test("the view is the website's own page, with absolute URLs and the right permissions", async () => {
@@ -316,9 +333,31 @@ test("the old single document becomes the first document on upgrade", () => {
   assert.ok(fs.existsSync(path.join(old, "doc.json.migrated")));
 });
 
+test("removed documents can be brought back for 30 days, then they are deleted for good", () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "gw-purge-"));
+  fs.mkdirSync(path.join(d, "docs"));
+  const body = JSON.stringify({ title: "x", nodes: [{ type: "paragraph", text: "x" }] });
+  for (const id of ["oldgone1", "newgone1"]) fs.writeFileSync(path.join(d, "docs", `${id}.json.deleted`), body);
+  const old = new Date(Date.now() - 31 * 24 * 3600 * 1000);
+  fs.utimesSync(path.join(d, "docs", "oldgone1.json.deleted"), old, old);
+  execFileSync("node", ["-e", 'import("./server.js").then(()=>process.exit(0))'], { cwd: path.join(import.meta.dirname, ".."), env: { ...process.env, DATA_DIR: d } });
+  assert.ok(!fs.existsSync(path.join(d, "docs", "oldgone1.json.deleted")), "removed 31 days ago: gone");
+  assert.ok(fs.existsSync(path.join(d, "docs", "newgone1.json.deleted")), "removed today: can still be restored");
+});
+
 test("every deploy is identifiable and never served stale: the view carries a build id and site files revalidate", async () => {
   const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
   assert.match(contents[0].text, /window\.__GHOSTWRITER_BUILD__="[0-9a-f]{8}"/);
   const res = await fetch(`${url}/main.js`);
   assert.equal(res.headers.get("cache-control"), "no-store");
+});
+
+test("the help and privacy pages the directory listing links to are public", async () => {
+  for (const [p, must] of [["/help", /Troubleshooting/], ["/privacy", /How long we keep it/]]) {
+    const r = await fetch(`${url}${p}`);
+    assert.equal(r.status, 200, p);
+    const html = await r.text();
+    assert.match(html, must);
+    assert.match(html, /mailto:/, `${p} has a contact`);
+  }
 });

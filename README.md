@@ -47,7 +47,7 @@ Point Ghostwriter at your own OpenID Connect provider (Authelia, Keycloak, Authe
 - **The editor inside the chat** gets a short-lived token from that connection.
 - **Connected apps** in the menu lists the apps you approved, with a Disconnect button that cuts each one off at once.
 
-Everyone who can sign in shares one library of documents.
+Each person who signs in has their own library: nobody can see, open or change anyone else's documents, on the website or through an assistant. A new person starts with one sample document.
 
 ### Set it up
 
@@ -71,6 +71,7 @@ Everyone who can sign in shares one library of documents.
 | `SESSION_DAYS` | no | Website session length. Default 7. |
 | `OAUTH_ACCESS_MINUTES` / `OAUTH_REFRESH_DAYS` | no | Lifetime of an app's access token (default 60) and of its sign-in (default 30 days; then the person signs in again). |
 | `SESSION_SECRET` | no | Signs cookies and editor tokens. Default: a random one made once and kept in `DATA_DIR/auth/secret`. |
+| `UNOWNED_DOCS_OWNER` | no | Your email. Documents made before sign-in was on belong to nobody; the first time this person signs in (with an email the provider has verified), they move into their library. |
 | `TRUST_PROXY` | behind a proxy | Which proxies' `X-Forwarded-For` to trust, so the sign-in endpoints' rate limits see real addresses ([Express's setting](https://expressjs.com/en/guide/behind-proxies.html)). Default `loopback` (a proxy on the same machine). Behind a proxy in another container, set its address or network, for example `uniquelocal`, and don't publish Ghostwriter's own port. |
 
 Ghostwriter refuses to start if sign-in is half set up (an issuer but no allowlist, or http on a public address), rather than starting open.

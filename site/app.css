@@ -434,3 +434,6 @@ html[data-display="inline"] .signin { min-height: 320px; }
 .apps-text { flex: 1; min-width: 0; }
 .apps-name { font: 600 14px/20px var(--font-sans); overflow-wrap: anywhere; }
 .apps-empty { padding: 10px 0; }
+
+.signin-links { margin: 16px 0 0; font-size: 14px; color: var(--ink-muted); }
+.signin-links a { color: var(--violet-text); }

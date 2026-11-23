@@ -47,10 +47,22 @@ const auth = (() => {
 
 /* ------------------------------ document store ----------------------------- */
 
+// Libraries. Without sign-in there is one library, open to anyone (owner ""), kept in data/docs.
+// With sign-in on, every person has their own library, kept in data/docs/<owner>/, where <owner>
+// is a hash of the provider's subject id. Nobody can see, open or change another person's documents:
+// every lookup below takes the caller's owner, and a document in someone else's library is "not found".
 const ID_RE = /^[a-z0-9]{6,16}$/;
+const OWNER_RE = /^u[0-9a-f]{24}$/;
 const docsDir = path.join(DATA, "docs");
-/** id -> { id, doc, log: [{rev, kind, tool?, args?}], updated } */
+/** id -> { id, owner, doc, log: [{rev, kind, tool?, args?}], updated }. Ids are unique across libraries. */
 const store = new Map();
+const ownerDir = (owner) => (owner ? path.join(docsDir, owner) : docsDir);
+/** The library a signed-in person owns. */
+const ownerKey = (sub) => "u" + crypto.createHash("sha256").update(`ghostwriter-owner:${sub}`).digest("hex").slice(0, 24);
+// With sign-in on, the documents from before libraries (data/docs/*.json) belong to nobody. Set
+// UNOWNED_DOCS_OWNER to your email and they move into your library the first time you sign in
+// (only when your provider says that email is verified).
+const UNOWNED_OWNER = (process.env.UNOWNED_DOCS_OWNER ?? "").trim().toLowerCase();
 
 const newId = () => {
   const abc = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -61,10 +73,10 @@ const newId = () => {
   }
 };
 
-function loadEntry(id, data, updated) {
+function loadEntry(id, data, updated, owner = "") {
   const doc = new Doc();
   doc.load(data);
-  const entry = { id, doc, log: [], updated, history: new Map() };
+  const entry = { id, owner, doc, log: [], updated, history: new Map() };
   remember(entry);
   store.set(id, entry);
 }
@@ -77,21 +89,26 @@ function remember(e) {
 }
 
 function persist(entry) {
-  const file = path.join(docsDir, entry.id + ".json");
+  const file = path.join(ownerDir(entry.owner), entry.id + ".json");
   fs.writeFileSync(file + ".tmp", JSON.stringify(entry.doc.serialize()));
   fs.renameSync(file + ".tmp", file);
 }
 
-// Load what is on disk. The old single-document file becomes the first document.
-for (const f of fs.readdirSync(docsDir)) {
-  const id = f.replace(/\.json$/, "");
-  if (!f.endsWith(".json") || !ID_RE.test(id)) continue;
-  try {
-    loadEntry(id, JSON.parse(fs.readFileSync(path.join(docsDir, f), "utf8")), fs.statSync(path.join(docsDir, f)).mtimeMs);
-  } catch (e) {
-    console.error("skipping unreadable document", f, e.message);
+// Load what is on disk: the open library, then each person's. The old single-document file becomes the first document.
+function loadDir(owner) {
+  const dir = ownerDir(owner);
+  for (const f of fs.readdirSync(dir)) {
+    const id = f.replace(/\.json$/, "");
+    if (!f.endsWith(".json") || !ID_RE.test(id)) continue;
+    try {
+      loadEntry(id, JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")), fs.statSync(path.join(dir, f)).mtimeMs, owner);
+    } catch (e) {
+      console.error("skipping unreadable document", f, e.message);
+    }
   }
 }
+loadDir("");
+for (const d of fs.readdirSync(docsDir, { withFileTypes: true })) if (d.isDirectory() && OWNER_RE.test(d.name)) loadDir(d.name);
 const legacy = path.join(DATA, "doc.json");
 if (store.size === 0 && fs.existsSync(legacy)) {
   const id = newId();
@@ -99,10 +116,51 @@ if (store.size === 0 && fs.existsSync(legacy)) {
   persist(store.get(id));
   fs.renameSync(legacy, legacy + ".migrated");
 }
-if (store.size === 0) {
+// The open library starts with a sample document. With sign-in on, each person's does (libraryOf).
+if (!auth && store.size === 0) {
   const id = newId();
   loadEntry(id, SEED, Date.now());
   persist(store.get(id));
+}
+
+/**
+ * The library a caller may use: "" without sign-in, otherwise the signed-in person's own. The first
+ * time someone arrives, their library is made with a sample document in it (and, for the owner named
+ * by UNOWNED_DOCS_OWNER, the documents from before libraries).
+ */
+function libraryOf(user) {
+  if (!auth) return "";
+  if (!user?.sub) throw new ToolError("Error: sign in to use Ghostwriter.", "unauthorized");
+  const owner = ownerKey(user.sub);
+  const dir = ownerDir(owner);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    const claims = UNOWNED_OWNER && user.emailVerified === true && user.email?.toLowerCase() === UNOWNED_OWNER;
+    const moved = claims ? claimUnowned(owner) : 0;
+    if (!moved) {
+      const id = newId();
+      loadEntry(id, SEED, Date.now(), owner);
+      persist(store.get(id));
+    }
+  }
+  return owner;
+}
+
+/** Moves the open library's documents (and its removed ones, for undo) into one person's library. */
+function claimUnowned(owner) {
+  let n = 0;
+  for (const f of fs.readdirSync(docsDir)) {
+    const id = f.replace(/\.json(\.deleted)?$/, "");
+    if (!/\.json(\.deleted)?$/.test(f) || !ID_RE.test(id)) continue;
+    fs.renameSync(path.join(docsDir, f), path.join(ownerDir(owner), f));
+    const e = store.get(id);
+    if (e && e.owner === "") {
+      e.owner = owner;
+      n++;
+    }
+  }
+  if (n) console.log(`moved ${n} documents from before libraries into their owner's library`);
+  return n;
 }
 
 const words = (d) => {
@@ -136,38 +194,40 @@ const lines = (d, max = 8) => {
   return out.slice(0, max);
 };
 const summarizeFull = (e) => ({ ...summarize(e), lines: lines(e.doc) });
-const listDocs = () => [...store.values()].map(summarize).sort((a, b) => b.updated - a.updated);
+const entriesOf = (owner) => [...store.values()].filter((e) => e.owner === owner);
+const listDocs = (owner) => entriesOf(owner).map(summarize).sort((a, b) => b.updated - a.updated);
 
-function getEntry(id) {
+/** A document in this library. One in another library is "not found", exactly like one that doesn't exist. */
+function getEntry(owner, id) {
   const e = typeof id === "string" ? store.get(id) : undefined;
-  if (!e) throw new ToolError(`Error: no document with id "${id}". Call list_documents for the ids, or create_document to start a new one.`, "not_found");
+  if (!e || e.owner !== owner) throw new ToolError(`Error: no document with id "${id}". Call list_documents for the ids, or create_document to start a new one.`, "not_found");
   return e;
 }
 
-function createDoc(title, { sample = false } = {}) {
-  if (store.size >= MAX_DOCS) throw new ToolError(`Error: the library holds at most ${MAX_DOCS} documents.`, "too_many");
+function createDoc(owner, title, { sample = false } = {}) {
+  if (entriesOf(owner).length >= MAX_DOCS) throw new ToolError(`Error: the library holds at most ${MAX_DOCS} documents.`, "too_many");
   const t = String(title ?? "").replace(/\s*\n+\s*/g, " ").trim();
   if (t.length > LIMITS.title) throw new ToolError(`Error: the title is ${t.length} characters; the limit is ${LIMITS.title}.`, "too_long");
   const id = newId();
-  loadEntry(id, sample ? { ...SEED, title: t || SEED.title } : { title: t, nodes: [{ type: "paragraph", text: "" }] }, Date.now());
+  loadEntry(id, sample ? { ...SEED, title: t || SEED.title } : { title: t, nodes: [{ type: "paragraph", text: "" }] }, Date.now(), owner);
   persist(store.get(id));
   return store.get(id);
 }
 
-function copyDoc(id) {
-  const src = getEntry(id);
-  if (store.size >= MAX_DOCS) throw new ToolError(`Error: the library holds at most ${MAX_DOCS} documents.`, "too_many");
+function copyDoc(owner, id) {
+  const src = getEntry(owner, id);
+  if (entriesOf(owner).length >= MAX_DOCS) throw new ToolError(`Error: the library holds at most ${MAX_DOCS} documents.`, "too_many");
   const copy = src.doc.snapshot();
   copy.title = `Copy of ${copy.title.trim() || "Untitled document"}`.slice(0, LIMITS.title);
   copy.revision = 1;
   const nid = newId();
-  loadEntry(nid, copy, Date.now());
+  loadEntry(nid, copy, Date.now(), owner);
   persist(store.get(nid));
   return store.get(nid);
 }
 
-function renameDoc(id, title) {
-  const e = getEntry(id);
+function renameDoc(owner, id, title) {
+  const e = getEntry(owner, id);
   const t = String(title ?? "").replace(/\s*\n+\s*/g, " ").trim();
   if (t.length > LIMITS.title) throw new ToolError(`Error: the title is ${t.length} characters; the limit is ${LIMITS.title}.`, "too_long");
   const snap = e.doc.snapshot();
@@ -179,21 +239,47 @@ function renameDoc(id, title) {
 }
 
 /** Undo a removal: the file was only renamed, so bring it back. */
-function restoreDoc(id) {
+function restoreDoc(owner, id) {
   if (!ID_RE.test(id)) throw new ToolError("Error: not a document id.", "not_found");
-  if (store.has(id)) return store.get(id);
-  const gone = path.join(docsDir, id + ".json.deleted");
+  if (store.has(id)) return getEntry(owner, id);
+  const gone = path.join(ownerDir(owner), id + ".json.deleted");
   if (!fs.existsSync(gone)) throw new ToolError(`Error: there is no removed document with id "${id}".`, "not_found");
-  loadEntry(id, JSON.parse(fs.readFileSync(gone, "utf8")), Date.now());
-  fs.renameSync(gone, path.join(docsDir, id + ".json"));
+  loadEntry(id, JSON.parse(fs.readFileSync(gone, "utf8")), Date.now(), owner);
+  fs.renameSync(gone, path.join(ownerDir(owner), id + ".json"));
   return store.get(id);
 }
 
-function removeDoc(id) {
-  const e = getEntry(id);
+function removeDoc(owner, id) {
+  const e = getEntry(owner, id);
   store.delete(id);
-  fs.renameSync(path.join(docsDir, id + ".json"), path.join(docsDir, id + ".json.deleted"));
+  const gone = path.join(ownerDir(owner), id + ".json.deleted");
+  fs.renameSync(path.join(ownerDir(owner), id + ".json"), gone);
+  const t = new Date();
+  fs.utimesSync(gone, t, t); // when it was removed, for purgeRemoved
   return e;
+}
+
+/** Removed documents can be brought back for REMOVED_DAYS (default 30), then they are deleted for good. */
+const REMOVED_DAYS = Number(process.env.REMOVED_DAYS ?? 30);
+function purgeRemoved() {
+  const cutoff = Date.now() - REMOVED_DAYS * 24 * 3600 * 1000;
+  const dirs = [docsDir, ...fs.readdirSync(docsDir).filter((d) => OWNER_RE.test(d)).map((d) => path.join(docsDir, d))];
+  let n = 0;
+  for (const dir of dirs) {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".json.deleted")) continue;
+      const file = path.join(dir, f);
+      if (fs.statSync(file).mtimeMs < cutoff) {
+        fs.rmSync(file);
+        n++;
+      }
+    }
+  }
+  if (n) console.log(`deleted ${n} documents removed more than ${REMOVED_DAYS} days ago`);
+}
+if (Number.isFinite(REMOVED_DAYS) && REMOVED_DAYS > 0) {
+  purgeRemoved();
+  setInterval(purgeRemoved, 6 * 3600 * 1000).unref();
 }
 
 const touch = (e) => {
@@ -209,8 +295,8 @@ function pushLog(e, entry) {
 }
 
 /** What changed in one document since a revision, as replayable tool calls, or a snapshot. */
-function pullDoc(id, since) {
-  const e = getEntry(id);
+function pullDoc(owner, id, since) {
+  const e = getEntry(owner, id);
   const doc = e.doc;
   if (since === doc.revision) return { revision: doc.revision, changes: [] };
   if (!Number.isInteger(since) || since < 0) return { revision: doc.revision, snapshot: doc.snapshot() };
@@ -221,8 +307,8 @@ function pullDoc(id, since) {
 }
 
 /** The person's edits replace the document, if nothing changed on the server meanwhile. */
-function pushDoc(id, base, snapshot) {
-  const e = getEntry(id);
+function pushDoc(owner, id, base, snapshot) {
+  const e = getEntry(owner, id);
   const mine = validateSnapshot(snapshot);
   if (base === e.doc.revision) {
     e.doc.load({ ...mine, revision: e.doc.revision + 1 });
@@ -276,8 +362,9 @@ const SCREEN_ONLY = new Set(["get_selection", "get_view", "replace_selection"]);
 const template = buildTools(new Doc()).filter((d) => !SCREEN_ONLY.has(d.name));
 const docToolNames = new Set(template.map((d) => d.name));
 
-const READ = { readOnlyHint: true, consequentialHint: false, untrustedContentHint: true };
-const WRITE = { readOnlyHint: false, consequentialHint: false, untrustedContentHint: true };
+const READ = { readOnlyHint: true, openWorldHint: false, consequentialHint: false, untrustedContentHint: true };
+// Creating a document only adds one; nothing already there is changed.
+const ADD = { readOnlyHint: false, destructiveHint: false, openWorldHint: false, consequentialHint: false, untrustedContentHint: true };
 const documentId = { type: "string", maxLength: 16, description: "Which document. Ids come from list_documents (or create_document)." };
 
 /** The website's tool definitions with a document_id added to each. */
@@ -303,8 +390,8 @@ const extraTools = [
     description: "Lists the documents in the library with their ids, titles, word counts and when they were last changed (newest first). Call this to find a document before reading or editing it.",
     inputSchema: { type: "object", properties: {} },
     annotations: READ,
-    run: async () => {
-      const docs = listDocs();
+    run: async (_args, owner) => {
+      const docs = listDocs(owner);
       const lines = docs.map((d) => `${d.id}  "${d.title}"  ${d.words} words  changed ${new Date(d.updated).toISOString()}`);
       return ok(`${docs.length} documents (newest first):\n${lines.join("\n")}`, { documents: docs });
     },
@@ -314,9 +401,9 @@ const extraTools = [
     title: "Create a document",
     description: "Creates a new, empty document and returns its id. Then fill it with insert_nodes, or open it for the person with open_document.",
     inputSchema: { type: "object", properties: { title: { type: "string", maxLength: LIMITS.title, description: "The document's title. May be empty." } } },
-    annotations: WRITE,
-    run: async ({ title }) => {
-      const e = createDoc(title);
+    annotations: ADD,
+    run: async ({ title }, owner) => {
+      const e = createDoc(owner, title);
       return ok(`Created document ${e.id} ("${e.doc.title || "Untitled"}"). It has one empty paragraph.`, summarize(e));
     },
   },
@@ -324,19 +411,19 @@ const extraTools = [
     name: "open_document",
     title: "Ghostwriter",
     description:
-      "Shows the Ghostwriter editor to the person in a new card, so they can read and edit while you work. With a document_id it shows that document; without one it shows the list of documents. Call it when the person asks to see or reopen the editor, or to show a different document. Do not call it again after each edit: your edits appear live in the card they already have, and every call adds another card to the conversation (older cards switch themselves off, only the newest stays live). You cannot tell whether an earlier card is still on screen, so if the person says they cannot see it or it looks blank or stuck, call it again rather than assuming it is open. You do not need the editor to read or edit documents: the other tools work either way.",
+      "Shows the Ghostwriter editor to the person in a new card in the conversation, so they can read and edit alongside you. With a document_id it shows that document; without one it shows the list of documents. For when the person wants to see the editor, reopen it, or switch to another document. Edits made with the other tools appear live in a card that is already open, so a new card isn't needed after an edit; each call adds a card, and older cards stop updating. If the person says the editor is missing, blank or stuck, a new card fixes it. The other tools read and edit documents whether or not a card is open.",
     inputSchema: { type: "object", properties: { document_id: { ...documentId, description: "Optional. Omit to show the document list." } } },
     annotations: READ,
     _meta: uiMeta,
-    run: async ({ document_id }) => {
+    run: async ({ document_id }, owner) => {
       // The election key: stored in the transcript with this result, so the cards in a conversation
       // agree on which one is newest however late each is mounted (see site/supersede.js).
       const key = nextViewKey();
       if (document_id === undefined) {
-        const docs = listDocs();
+        const docs = listDocs(owner);
         return ok(`Showed the editor on the list of ${docs.length} documents. The person chooses which to open. Call open_document again any time to show it again.`, { view: "list", count: docs.length, ...key });
       }
-      const e = getEntry(document_id);
+      const e = getEntry(owner, document_id);
       const s = summarize(e);
       return ok(`Showed the editor on "${s.title}" (${e.id}, ${s.blocks} blocks). Use get_document with document_id "${e.id}" to read it. Call open_document again any time to show it again.`, { view: "doc", id: e.id, title: s.title, ...key });
     },
@@ -362,7 +449,7 @@ const viewTokenTool = {
   title: "Editor session",
   description: "Used by the Ghostwriter editor view to load documents. Not for the assistant.",
   inputSchema: { type: "object", properties: {} },
-  annotations: { readOnlyHint: true, consequentialHint: false },
+  annotations: { readOnlyHint: true, openWorldHint: false, consequentialHint: false },
   _meta: { ui: { visibility: ["app"] } },
   run: async (extra) => {
     const user = extra?.authInfo?.extra?.user;
@@ -373,15 +460,16 @@ const viewTokenTool = {
 };
 const toolByName = new Map(allTools.map((t) => [t.name, t]));
 
-/** Runs one tool call. Document tools are rebuilt against the named document each time. */
-async function runTool(name, args) {
+/** Runs one tool call for a person (their user, or none without sign-in). Document tools are rebuilt against the named document each time. */
+async function runTool(name, args, user) {
   const def = toolByName.get(name);
   if (!def) throw new Error(`Unknown tool: ${name}`);
   return serial(async () => {
     try {
-      if (!docToolNames.has(name)) return await def.run(args);
+      const owner = libraryOf(user);
+      if (!docToolNames.has(name)) return await def.run(args, owner);
       const { document_id, ...rest } = args;
-      const e = getEntry(document_id);
+      const e = getEntry(owner, document_id);
       const bound = buildTools(e.doc).find((t) => t.name === name);
       const before = e.doc.revision;
       const result = await bound.run(rest);
@@ -443,7 +531,7 @@ function makeServer() {
 
   server.setRequestHandler(CallToolRequestSchema, (req, extra) => {
     if (auth && req.params.name === viewTokenTool.name) return viewTokenTool.run(extra);
-    return runTool(req.params.name, req.params.arguments ?? {});
+    return runTool(req.params.name, req.params.arguments ?? {}, extra?.authInfo?.extra?.user);
   });
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
@@ -488,6 +576,27 @@ app.disable("x-powered-by");
 // X-Forwarded-For. By default only a proxy on this machine is trusted; behind one on another address
 // (a Docker network, say) set TRUST_PROXY to it, e.g. "uniquelocal" or its IP.
 app.set("trust proxy", process.env.TRUST_PROXY ?? "loopback");
+// A one-line log of MCP and sign-in traffic, for working out what a client (Claude, ChatGPT...) did:
+// method, path, status, time, the JSON-RPC method and tool, and the client's name. Never tokens,
+// query strings or document text. LOG_REQUESTS=off turns it off.
+const LOGGED = /^\/(mcp|token|authorize|register|revoke|\.well-known\/|auth\/)/;
+if (process.env.LOG_REQUESTS !== "off") {
+  app.use((req, res, next) => {
+    if (!LOGGED.test(req.path)) return next();
+    const t0 = Date.now();
+    const where = req.path; // routers rewrite req.path on the way down; keep the full one
+    res.on("finish", () => {
+      const b = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : null;
+      const rpc = req.path === "/mcp" && b?.method ? ` rpc=${String(b.method).slice(0, 40)}${b.params?.name ? `(${String(b.params.name).slice(0, 40)})` : ""}` : "";
+      const auth = req.headers.authorization ? " bearer" : "";
+      const ua = String(req.headers["user-agent"] ?? "").replace(/[^\x20-\x7e]/g, "").slice(0, 60);
+      const why = res.statusCode >= 400 ? ` www-auth=${JSON.stringify(String(res.getHeader("www-authenticate") ?? "").slice(0, 120))}` : "";
+      console.log(`req ${req.method} ${where} ${res.statusCode} ${Date.now() - t0}ms${rpc}${auth}${why} ua="${ua}"`);
+    });
+    next();
+  });
+}
+
 // Documents can be big; /register (open to anyone when sign-in is on) gets its own 8 KB parser in auth/.
 const json = express.json({ limit: "1mb" });
 app.use((req, res, next) => (req.path === "/register" ? next() : json(req, res, next)));
@@ -546,36 +655,37 @@ api.use((_req, res, next) => {
 });
 if (auth) api.use("/session", auth.session);
 else api.get("/session", (_req, res) => res.json({ auth: false, user: null }));
-const send = (res, fn) =>
+/** Runs fn with the caller's library (the open one without sign-in) and sends what it returns. */
+const send = (req, res, fn) =>
   serial(async () => {
     try {
-      res.json(fn());
+      res.json(fn(libraryOf(req.user)));
     } catch (e) {
-      if (e instanceof ToolError) return res.status(e.code === "not_found" ? 404 : 400).json({ error: e.code, message: e.message });
+      if (e instanceof ToolError) return res.status(e.code === "not_found" ? 404 : e.code === "unauthorized" ? 401 : 400).json({ error: e.code, message: e.message });
       console.error("api error", e);
       res.status(500).json({ error: "error", message: "Something went wrong." });
     }
   });
-const listFull = () => ({ documents: [...store.values()].map(summarizeFull).sort((a, b) => b.updated - a.updated) });
-api.get("/docs", (_req, res) => send(res, listFull));
+const listFull = (owner) => ({ documents: entriesOf(owner).map(summarizeFull).sort((a, b) => b.updated - a.updated) });
+api.get("/docs", (req, res) => send(req, res, listFull));
 api.post("/docs", (req, res) =>
-  send(res, () => {
-    const e = createDoc(req.body?.title, { sample: req.body?.sample === true });
+  send(req, res, (owner) => {
+    const e = createDoc(owner, req.body?.title, { sample: req.body?.sample === true });
     return { ...summarize(e), snapshot: e.doc.snapshot() };
   }),
 );
-api.post("/docs/:id/copy", (req, res) => send(res, () => summarizeFull(copyDoc(req.params.id))));
-api.post("/docs/:id/restore", (req, res) => send(res, () => summarizeFull(restoreDoc(req.params.id))));
-api.patch("/docs/:id", (req, res) => send(res, () => summarizeFull(renameDoc(req.params.id, req.body?.title))));
+api.post("/docs/:id/copy", (req, res) => send(req, res, (owner) => summarizeFull(copyDoc(owner, req.params.id))));
+api.post("/docs/:id/restore", (req, res) => send(req, res, (owner) => summarizeFull(restoreDoc(owner, req.params.id))));
+api.patch("/docs/:id", (req, res) => send(req, res, (owner) => summarizeFull(renameDoc(owner, req.params.id, req.body?.title))));
 api.get("/docs/:id", (req, res) =>
-  send(res, () => {
-    const e = getEntry(req.params.id);
+  send(req, res, (owner) => {
+    const e = getEntry(owner, req.params.id);
     return { ...summarize(e), snapshot: e.doc.snapshot() };
   }),
 );
-api.delete("/docs/:id", (req, res) => send(res, () => (removeDoc(req.params.id), listFull())));
-api.get("/docs/:id/pull", (req, res) => send(res, () => pullDoc(req.params.id, Number.parseInt(req.query.since ?? "-1", 10))));
-api.post("/docs/:id/push", (req, res) => send(res, () => pushDoc(req.params.id, req.body?.base, req.body?.snapshot)));
+api.delete("/docs/:id", (req, res) => send(req, res, (owner) => (removeDoc(owner, req.params.id), listFull(owner))));
+api.get("/docs/:id/pull", (req, res) => send(req, res, (owner) => pullDoc(owner, req.params.id, Number.parseInt(req.query.since ?? "-1", 10))));
+api.post("/docs/:id/push", (req, res) => send(req, res, (owner) => pushDoc(owner, req.params.id, req.body?.base, req.body?.snapshot)));
 app.use("/api", ...(auth ? [auth.apiGuard] : []), api);
 
 // The website itself, so one app answers the whole domain.

@@ -29,7 +29,11 @@ Object.assign(process.env, {
   OIDC_CLIENT_SECRET: idp.clientSecret,
   OIDC_ALLOWED_GROUPS: "admins,family",
   OIDC_ALLOWED_EMAILS: "guest@example.test",
+  UNOWNED_DOCS_OWNER: "Amit@example.test",
 });
+// A document from before libraries: it belongs to nobody until UNOWNED_DOCS_OWNER signs in.
+fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
+fs.writeFileSync(path.join(dir, "docs", "oldone01.json"), JSON.stringify({ title: "From before libraries", nodes: [{ type: "paragraph", text: "Kept." }] }));
 
 const { app } = await import("../server.js");
 const { readAuthConfig } = await import("../auth/index.js");
@@ -122,11 +126,18 @@ describe("signed out", () => {
   test("advertises itself as the authorization server for /mcp, with registration and PKCE", async () => {
     const prm = await (await fetch(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`)).json();
     assert.equal(prm.resource, `${ORIGIN}/mcp`);
-    assert.deepEqual(prm.authorization_servers, [`${ORIGIN}/`]);
+    assert.deepEqual(prm.authorization_servers, [ORIGIN]);
     const root = await (await fetch(`${ORIGIN}/.well-known/oauth-protected-resource`)).json();
-    assert.equal(root.resource, `${ORIGIN}/mcp`);
+    assert.equal(root.resource, ORIGIN, "the root document names the server (RFC 9728)");
+    assert.deepEqual(root.authorization_servers, [ORIGIN]);
     const as = await (await fetch(`${ORIGIN}/.well-known/oauth-authorization-server`)).json();
-    assert.equal(as.issuer, `${ORIGIN}/`);
+    // The issuer is written the same way everywhere, with no trailing slash: ChatGPT compares exactly.
+    assert.equal(as.issuer, ORIGIN);
+    const asSlash = await (await fetch(`${ORIGIN}/.well-known/oauth-authorization-server/`)).json();
+    assert.equal(asSlash.issuer, ORIGIN);
+    const oidc = await fetch(`${ORIGIN}/.well-known/openid-configuration`);
+    assert.equal(oidc.status, 404);
+    assert.equal((await oidc.json()).error, "not_found");
     assert.equal(as.registration_endpoint, `${ORIGIN}/register`);
     assert.deepEqual(as.code_challenge_methods_supported, ["S256"]);
     assert.ok(as.revocation_endpoint);
@@ -469,6 +480,35 @@ describe("MCP hosts (Claude, ChatGPT)", () => {
     assert.ok(redirectAllowed("http://localhost:33418/callback"));
   });
 
+  test("a ChatGPT-style client (public, PKCE, resource = the server's root) gets a token that works on /mcp", async () => {
+    const crypto = await import("node:crypto");
+    const b = browser();
+    await signIn(b);
+    const redirect = "https://chatgpt.com/connector/oauth/test-callback";
+    const reg = await fetch(`${ORIGIN}/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client_name: "ChatGPT", redirect_uris: [redirect], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }) });
+    assert.equal(reg.status, 201);
+    const { client_id } = await reg.json();
+    const verifier = crypto.randomBytes(32).toString("base64url");
+    const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+    const u = new URL(`${ORIGIN}/authorize`);
+    for (const [k, v] of Object.entries({ response_type: "code", client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: "S256", state: "st", resource: ORIGIN })) u.searchParams.set(k, v);
+    const { res, url } = await b.follow(u.href, { stopAt: redirect });
+    let back = url;
+    if (!back.startsWith(redirect)) {
+      const csrf = /name="csrf" value="([^"]+)"/.exec(await res.text())[1];
+      const r = await b.go(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: ORIGIN }, body: new URLSearchParams({ csrf, decision: "allow" }) });
+      back = r.headers.get("location");
+    }
+    const code = new URL(back).searchParams.get("code");
+    assert.equal(new URL(back).searchParams.get("state"), "st");
+    const tok = await tokenRequest({ grant_type: "authorization_code", code, code_verifier: verifier, client_id, redirect_uri: redirect, resource: ORIGIN });
+    assert.equal(tok.status, 200);
+    const t = await tok.json();
+    assert.equal((await mcpWith(t.access_token)).status, 200);
+    const again = await tokenRequest({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id, resource: ORIGIN });
+    assert.equal(again.status, 200, "refresh with the root as resource");
+  });
+
   test("a token is only for this server: another resource is refused at authorization", async () => {
     const b = browser();
     await signIn(b);
@@ -486,6 +526,109 @@ describe("MCP hosts (Claude, ChatGPT)", () => {
     assert.doesNotMatch(text, /gw[ar]_[A-Za-z0-9_-]{20}/);
     assert.equal(fs.statSync(file).mode & 0o077, 0);
     assert.equal(fs.statSync(path.join(dir, "auth", "secret")).mode & 0o077, 0);
+  });
+});
+
+describe("libraries: each person has their own documents", () => {
+  const asGuest = async (fn) => {
+    const saved = idp.user;
+    idp.user = { sub: "u-guest-lib", name: "Guest", email: "guest@example.test", email_verified: true, groups: [] };
+    try {
+      return await fn();
+    } finally {
+      idp.user = saved;
+    }
+  };
+  const write = (b, method, p, body) => apiFetch(b, method, p, body, { origin: ORIGIN });
+
+  test("the documents from before libraries moved into UNOWNED_DOCS_OWNER's library, and nobody else's", async () => {
+    const amit = browser();
+    await signIn(amit);
+    const mine = (await (await apiFetch(amit, "GET", "/docs")).json()).documents;
+    assert.ok(mine.some((d) => d.id === "oldone01" && d.title === "From before libraries"));
+    assert.ok(fs.existsSync(path.join(dir, "docs", fs.readdirSync(path.join(dir, "docs")).find((f) => /^u[0-9a-f]{24}$/.test(f)) ?? "-", "oldone01.json")));
+    assert.ok(!fs.existsSync(path.join(dir, "docs", "oldone01.json")), "no longer in the open library");
+    const theirs = await asGuest(async () => {
+      const g = browser();
+      await signIn(g);
+      return (await (await apiFetch(g, "GET", "/docs")).json()).documents;
+    });
+    assert.ok(!theirs.some((d) => d.id === "oldone01"));
+  });
+
+  test("a new person starts with one sample document of their own", async () => {
+    const saved = idp.user;
+    idp.user = { sub: "u-fresh", name: "Fresh", email: "fresh@example.test", email_verified: true, groups: ["family"] };
+    try {
+      const b = browser();
+      await signIn(b);
+      const docs = (await (await apiFetch(b, "GET", "/docs")).json()).documents;
+      assert.equal(docs.length, 1);
+      assert.equal(docs[0].title, "Weekend at the lake");
+    } finally {
+      idp.user = saved;
+    }
+  });
+
+  test("on the website, someone else's document is not found: not listed, read, saved, renamed, copied or removed", async () => {
+    const amit = browser();
+    await signIn(amit);
+    const doc = await (await write(amit, "POST", "/docs", { title: "Amit's private plan" })).json();
+    await asGuest(async () => {
+      const g = browser();
+      await signIn(g);
+      const list = (await (await apiFetch(g, "GET", "/docs")).json()).documents;
+      assert.ok(!list.some((d) => d.id === doc.id), "not listed");
+      assert.equal((await apiFetch(g, "GET", `/docs/${doc.id}`)).status, 404);
+      assert.equal((await apiFetch(g, "GET", `/docs/${doc.id}/pull?since=0`)).status, 404);
+      assert.equal((await write(g, "POST", `/docs/${doc.id}/push`, { base: doc.revision, snapshot: doc.snapshot })).status, 404);
+      assert.equal((await write(g, "PATCH", `/docs/${doc.id}`, { title: "mine now" })).status, 404);
+      assert.equal((await write(g, "POST", `/docs/${doc.id}/copy`)).status, 404);
+      assert.equal((await write(g, "DELETE", `/docs/${doc.id}`)).status, 404);
+    });
+    const still = await (await apiFetch(amit, "GET", `/docs/${doc.id}`)).json();
+    assert.equal(still.title, "Amit's private plan");
+    // Removing and undoing stays within the library too.
+    assert.equal((await write(amit, "DELETE", `/docs/${doc.id}`)).status, 200);
+    await asGuest(async () => {
+      const g = browser();
+      await signIn(g);
+      assert.equal((await write(g, "POST", `/docs/${doc.id}/restore`)).status, 404, "someone else can't bring it back");
+    });
+    assert.equal((await write(amit, "POST", `/docs/${doc.id}/restore`)).status, 200);
+  });
+
+  test("over MCP, each connection sees only its person's library", async () => {
+    // Registered from its own address: /register is rate-limited per address, and the suite registers many apps.
+    const amitApp = hostAuth();
+    const regd = await fetch(`${ORIGIN}/register`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.7" }, body: JSON.stringify(amitApp.clientMetadata) });
+    assert.equal(regd.status, 201);
+    amitApp.s.client = await regd.json();
+    const { client: amit } = await connectHost(browser(), amitApp);
+    const created = await amit.callTool({ name: "create_document", arguments: { title: "Only for Amit" } });
+    const id = created.structuredContent.id;
+    // The same app (already registered: registration is rate-limited per address), a different person.
+    const guestApp = hostAuth();
+    guestApp.s.client = amitApp.s.client;
+    const { client: guest } = await asGuest(() => connectHost(browser(), guestApp));
+    const listed = await guest.callTool({ name: "list_documents", arguments: {} });
+    assert.ok(!listed.structuredContent.documents.some((d) => d.id === id));
+    for (const [name, args] of [
+      ["get_document", { document_id: id }],
+      ["open_document", { document_id: id }],
+      ["replace_text", { document_id: id, node_id: "n1", text: "mine" }],
+      ["delete_nodes", { document_id: id, node_ids: ["n1"] }],
+      ["set_title", { document_id: id, title: "mine" }],
+    ]) {
+      const r = await guest.callTool({ name, arguments: args });
+      assert.ok(r.isError, `${name} must not reach another person's document`);
+      assert.match(r.content[0].text, /no document with id/);
+    }
+    const mine = await amit.callTool({ name: "get_document", arguments: { document_id: id } });
+    assert.ok(!mine.isError);
+    assert.match(JSON.stringify(mine), /Only for Amit/);
+    await amit.close();
+    await guest.close();
   });
 });
 

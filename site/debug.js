@@ -87,6 +87,8 @@ export function mountMenu(options) {
     if (!embedded) {
       add("Add to Claude", addToClaude);
       add("Copy connector URL", copyConnector);
+      add("Help", () => window.open("/help", "_blank", "noopener"));
+      add("Privacy", () => window.open("/privacy", "_blank", "noopener"));
       sep();
     }
     add("Debug info", openPanel);
