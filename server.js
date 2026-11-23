@@ -276,8 +276,9 @@ const SCREEN_ONLY = new Set(["get_selection", "get_view", "replace_selection"]);
 const template = buildTools(new Doc()).filter((d) => !SCREEN_ONLY.has(d.name));
 const docToolNames = new Set(template.map((d) => d.name));
 
-const READ = { readOnlyHint: true, consequentialHint: false, untrustedContentHint: true };
-const WRITE = { readOnlyHint: false, consequentialHint: false, untrustedContentHint: true };
+const READ = { readOnlyHint: true, openWorldHint: false, consequentialHint: false, untrustedContentHint: true };
+// Creating a document only adds one; nothing already there is changed.
+const ADD = { readOnlyHint: false, destructiveHint: false, openWorldHint: false, consequentialHint: false, untrustedContentHint: true };
 const documentId = { type: "string", maxLength: 16, description: "Which document. Ids come from list_documents (or create_document)." };
 
 /** The website's tool definitions with a document_id added to each. */
@@ -314,7 +315,7 @@ const extraTools = [
     title: "Create a document",
     description: "Creates a new, empty document and returns its id. Then fill it with insert_nodes, or open it for the person with open_document.",
     inputSchema: { type: "object", properties: { title: { type: "string", maxLength: LIMITS.title, description: "The document's title. May be empty." } } },
-    annotations: WRITE,
+    annotations: ADD,
     run: async ({ title }) => {
       const e = createDoc(title);
       return ok(`Created document ${e.id} ("${e.doc.title || "Untitled"}"). It has one empty paragraph.`, summarize(e));
@@ -362,7 +363,7 @@ const viewTokenTool = {
   title: "Editor session",
   description: "Used by the Ghostwriter editor view to load documents. Not for the assistant.",
   inputSchema: { type: "object", properties: {} },
-  annotations: { readOnlyHint: true, consequentialHint: false },
+  annotations: { readOnlyHint: true, openWorldHint: false, consequentialHint: false },
   _meta: { ui: { visibility: ["app"] } },
   run: async (extra) => {
     const user = extra?.authInfo?.extra?.user;

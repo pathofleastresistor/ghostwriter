@@ -66,6 +66,17 @@ describe("what the tools say about themselves is true", () => {
     assert.equal(tools.find((t) => t.name === "delete_nodes").annotations.destructiveHint, true);
   });
 
+  // Anthropic's connector directory needs a title on every tool and destructiveHint on every write.
+  it("every tool has a title, and every write says whether it can overwrite or remove text", () => {
+    for (const t of tools) {
+      assert.ok(t.title, `${t.name} needs a title`);
+      assert.equal(t.annotations.openWorldHint, false, `${t.name}: nothing here reaches outside the page`);
+      if (!t.annotations.readOnlyHint) assert.equal(typeof t.annotations.destructiveHint, "boolean", `${t.name} must set destructiveHint`);
+    }
+    const adds = tools.filter((t) => t.annotations.destructiveHint === false).map((t) => t.name).sort();
+    assert.deepEqual(adds, ["insert_list_items", "insert_nodes"], "only the tools that just add text are non-destructive");
+  });
+
   it("every tool has an example here, so a new tool can't skip these checks", () => {
     assert.deepEqual(tools.map((t) => t.name).sort(), Object.keys(EXAMPLE).sort());
   });

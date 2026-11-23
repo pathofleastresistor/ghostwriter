@@ -6,8 +6,13 @@ import { LIMITS, ToolError } from "./model.js";
 // can classify it without guessing. None can reach outside this page, and none sends, buys or
 // publishes anything, so none is consequential. Document text is written by people (and can be
 // pasted from anywhere), so what comes back is untrusted text, never instructions.
-const READ = { readOnlyHint: true, consequentialHint: false, untrustedContentHint: true };
-const WRITE = { readOnlyHint: false, consequentialHint: false, untrustedContentHint: true };
+// Every write also says whether it can overwrite or remove what is there (destructiveHint), which
+// Anthropic's connector directory requires, and none reaches outside the server (openWorldHint).
+const READ = { readOnlyHint: true, openWorldHint: false, consequentialHint: false, untrustedContentHint: true };
+// Changes or removes existing text: replace, delete, retitle.
+const WRITE = { readOnlyHint: false, destructiveHint: true, openWorldHint: false, consequentialHint: false, untrustedContentHint: true };
+// Only adds new text; nothing already there is changed.
+const ADD = { ...WRITE, destructiveHint: false };
 
 const nodeSpec = {
   type: "object",
@@ -286,7 +291,7 @@ export function buildTools(doc, ctx = {}) {
         },
         required: ["position", "nodes"],
       },
-      annotations: WRITE,
+      annotations: ADD,
       activity: (a) => `Inserting ${a.nodes?.length ?? 0} block(s)`,
       run: mutate("insert_nodes", (a) => doc.insertNodes("insert_nodes", a.position, a.target, a.nodes)),
     },
@@ -305,7 +310,7 @@ export function buildTools(doc, ctx = {}) {
         },
         required: ["list_id", "items"],
       },
-      annotations: WRITE,
+      annotations: ADD,
       activity: (a) => `Adding ${a.items?.length ?? 0} item(s) to ${a.list_id}`,
       run: mutate("insert_list_items", (a) => doc.insertListItems("insert_list_items", a.list_id, a.items, a.after_item_id, a.position)),
     },
@@ -322,7 +327,7 @@ export function buildTools(doc, ctx = {}) {
         },
         required: ["ids"],
       },
-      annotations: { ...WRITE, destructiveHint: true },
+      annotations: WRITE,
       activity: (a) => `Deleting ${a.ids?.length ?? 0} item(s)`,
       run: mutate("delete_nodes", (a) => doc.deleteNodes("delete_nodes", a.ids)),
     },

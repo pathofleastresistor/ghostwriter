@@ -59,6 +59,21 @@ test("tools: every document tool takes a document_id; library tools exist; scree
   assert.ok(!(by.open_document.inputSchema.required ?? []).includes("document_id"), "no argument means the list");
 });
 
+test("directory annotations: every tool over MCP has a title, readOnlyHint, and destructiveHint on writes", async () => {
+  const { tools } = await client.listTools();
+  for (const t of tools) {
+    assert.ok(t.title, `${t.name} needs a title`);
+    assert.ok(t.name.length <= 64, `${t.name} is too long`);
+    assert.equal(typeof t.annotations?.readOnlyHint, "boolean", t.name);
+    if (!t.annotations.readOnlyHint) assert.equal(typeof t.annotations.destructiveHint, "boolean", `${t.name} must set destructiveHint`);
+  }
+  const by = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
+  assert.equal(by.create_document.destructiveHint, false);
+  assert.equal(by.insert_nodes.destructiveHint, false);
+  assert.equal(by.delete_nodes.destructiveHint, true);
+  assert.equal(by.replace_text.destructiveHint, true);
+});
+
 test("open_document carries the view, and is an entry point people can open from Claude's Artifacts page", async () => {
   const { tools } = await client.listTools();
   const open = tools.find((t) => t.name === "open_document");
