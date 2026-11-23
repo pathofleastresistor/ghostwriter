@@ -599,7 +599,12 @@ describe("libraries: each person has their own documents", () => {
   });
 
   test("over MCP, each connection sees only its person's library", async () => {
-    const { client: amit, provider: amitApp } = await connectHost(browser());
+    // Registered from its own address: /register is rate-limited per address, and the suite registers many apps.
+    const amitApp = hostAuth();
+    const regd = await fetch(`${ORIGIN}/register`, { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.7" }, body: JSON.stringify(amitApp.clientMetadata) });
+    assert.equal(regd.status, 201);
+    amitApp.s.client = await regd.json();
+    const { client: amit } = await connectHost(browser(), amitApp);
     const created = await amit.callTool({ name: "create_document", arguments: { title: "Only for Amit" } });
     const id = created.structuredContent.id;
     // The same app (already registered: registration is rate-limited per address), a different person.
