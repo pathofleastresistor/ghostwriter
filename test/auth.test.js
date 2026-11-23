@@ -248,6 +248,25 @@ describe("website sign-in", () => {
     }
   });
 
+  test("a userinfo hiccup is retried, and a lasting failure says so instead of 'not on the list'", async () => {
+    try {
+      idp.userinfoFailures = 1;
+      const b = browser();
+      await signIn(b);
+      assert.ok(b.jar.has("gw_session"), "one failed userinfo call is retried");
+      idp.userinfoFailures = 2;
+      const b2 = browser();
+      const { res } = await signIn(b2);
+      assert.equal(res.status, 502);
+      const text = await res.text();
+      assert.match(text, /couldn(&#39;|'|&#x27;)t reach your sign-in service/);
+      assert.doesNotMatch(text, /Not on the list/);
+      assert.ok(!b2.jar.has("gw_session"));
+    } finally {
+      idp.userinfoFailures = 0;
+    }
+  });
+
   test("the provider saying no is shown, not swallowed", async () => {
     idp.deny = true;
     const b = browser();
