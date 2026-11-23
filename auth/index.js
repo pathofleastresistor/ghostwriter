@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import express from "express";
-import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { mcpAuthRouter, createOAuthMetadata } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { createOidcClient, checkIssuer, OidcError } from "./oidc.js";
 import { createStore } from "./store.js";
@@ -289,8 +289,21 @@ export function createAuth(cfg, { fetchImpl } = {}) {
     res.set("Cache-Control", "no-store").redirect(303, to);
   });
 
-  // The OAuth endpoints and metadata (MCP SDK). Apps that register get secrets that do not expire:
-  // they are kept as long as the app stays connected.
+  // Discovery documents. The SDK names the issuer with a trailing slash ("https://host/"), and some
+  // clients (ChatGPT) compare issuers exactly and give up when the slash differs from what they
+  // expect, so these are served first with the usual form, the bare origin, everywhere it appears.
+  const asMetadata = { ...createOAuthMetadata({ provider, issuerUrl: new URL(origin), baseUrl: new URL(origin) }), issuer: origin };
+  const discovery = (doc) => (_req, res) => res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" }).json(doc);
+  router.get(["/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/"], discovery(asMetadata));
+  // RFC 9728: the document at a resource's well-known address names that resource. /mcp is the one
+  // that needs tokens; the root names the server as a whole. Tokens for either work on /mcp.
+  router.get(["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource/mcp/"], discovery({ resource, authorization_servers: [origin], resource_name: "Ghostwriter" }));
+  router.get(["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/"], discovery({ resource: origin, authorization_servers: [origin], resource_name: "Ghostwriter" }));
+  // Not an OpenID provider for apps (people sign in at the real one): say so in JSON, not an HTML 404.
+  router.get(["/.well-known/openid-configuration", "/.well-known/openid-configuration/"], (_req, res) => res.status(404).json({ error: "not_found", error_description: "Use /.well-known/oauth-authorization-server." }));
+
+  // The OAuth endpoints (MCP SDK). Apps that register get secrets that do not expire: they are kept
+  // as long as the app stays connected.
   router.use(
     mcpAuthRouter({
       provider,
@@ -301,8 +314,6 @@ export function createAuth(cfg, { fetchImpl } = {}) {
       clientRegistrationOptions: { clientSecretExpirySeconds: 0 },
     }),
   );
-  // Some clients look for the resource metadata at the root rather than under /mcp.
-  router.get("/.well-known/oauth-protected-resource", (_req, res) => res.set("Access-Control-Allow-Origin", "*").json({ resource, authorization_servers: [new URL(origin).href], resource_name: "Ghostwriter" }));
 
   const mcpGuard = requireBearerAuth({ verifier: provider, expectedResource: new URL(resource), resourceMetadataUrl: `${origin}/.well-known/oauth-protected-resource/mcp` });
 

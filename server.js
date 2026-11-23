@@ -576,6 +576,27 @@ app.disable("x-powered-by");
 // X-Forwarded-For. By default only a proxy on this machine is trusted; behind one on another address
 // (a Docker network, say) set TRUST_PROXY to it, e.g. "uniquelocal" or its IP.
 app.set("trust proxy", process.env.TRUST_PROXY ?? "loopback");
+// A one-line log of MCP and sign-in traffic, for working out what a client (Claude, ChatGPT...) did:
+// method, path, status, time, the JSON-RPC method and tool, and the client's name. Never tokens,
+// query strings or document text. LOG_REQUESTS=off turns it off.
+const LOGGED = /^\/(mcp|token|authorize|register|revoke|\.well-known\/|auth\/)/;
+if (process.env.LOG_REQUESTS !== "off") {
+  app.use((req, res, next) => {
+    if (!LOGGED.test(req.path)) return next();
+    const t0 = Date.now();
+    const where = req.path; // routers rewrite req.path on the way down; keep the full one
+    res.on("finish", () => {
+      const b = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : null;
+      const rpc = req.path === "/mcp" && b?.method ? ` rpc=${String(b.method).slice(0, 40)}${b.params?.name ? `(${String(b.params.name).slice(0, 40)})` : ""}` : "";
+      const auth = req.headers.authorization ? " bearer" : "";
+      const ua = String(req.headers["user-agent"] ?? "").replace(/[^\x20-\x7e]/g, "").slice(0, 60);
+      const why = res.statusCode >= 400 ? ` www-auth=${JSON.stringify(String(res.getHeader("www-authenticate") ?? "").slice(0, 120))}` : "";
+      console.log(`req ${req.method} ${where} ${res.statusCode} ${Date.now() - t0}ms${rpc}${auth}${why} ua="${ua}"`);
+    });
+    next();
+  });
+}
+
 // Documents can be big; /register (open to anyone when sign-in is on) gets its own 8 KB parser in auth/.
 const json = express.json({ limit: "1mb" });
 app.use((req, res, next) => (req.path === "/register" ? next() : json(req, res, next)));
