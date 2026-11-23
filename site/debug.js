@@ -81,7 +81,7 @@ export function mountMenu(options) {
     const sep = () => menu.append(h("div", "menu-sep"));
 
     if (rail.available()) {
-      add("Agent panel", rail.toggle, { checked: rail.isOpen(), hint: rail.isOpen() ? "On" : "Off" });
+      add("Side panel", rail.toggle, { checked: rail.isOpen(), hint: rail.isOpen() ? "On" : "Off" });
       sep();
     }
     if (!embedded) {

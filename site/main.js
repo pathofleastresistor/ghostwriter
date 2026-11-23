@@ -11,6 +11,7 @@ import { renderDocs, closeMenu } from "./home.js";
 import { captureErrors, connectorUrl } from "./debuglog.js";
 import { mountMenu } from "./debug.js";
 import { openApps } from "./account.js";
+import { createComments } from "./comments-view.js";
 
 captureErrors();
 
@@ -72,7 +73,9 @@ const view = new View(doc, {
   onShape: (key) => {
     document.querySelectorAll(".tool[data-block]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.block === key)));
   },
+  onRender: () => comments?.rendered(),
 });
+let comments = null; // the Comments panel and highlights (comments-view.js), made once sync exists
 
 /* ------------------------------- status strip ------------------------------ */
 
@@ -412,15 +415,20 @@ function debugInfo() {
   };
 }
 
-const tabs = [["#tab-changes", "#panel-changes"], ["#tab-tools", "#panel-tools"]];
-tabs.forEach(([t, p]) =>
-  $(t).addEventListener("click", () => {
-    tabs.forEach(([t2, p2]) => {
-      $(t2).setAttribute("aria-selected", String(t2 === t));
-      $(p2).hidden = p2 !== p;
-    });
-  }),
-);
+const tabs = [["#tab-comments", "#panel-comments"], ["#tab-changes", "#panel-changes"], ["#tab-tools", "#panel-tools"]];
+function selectTab(t) {
+  tabs.forEach(([t2, p2]) => {
+    $(t2).setAttribute("aria-selected", String(t2 === t));
+    $(p2).hidden = t2 !== t;
+  });
+}
+tabs.forEach(([t]) => $(t).addEventListener("click", () => selectTab(t)));
+$("#rail-close").addEventListener("click", () => setRail(false));
+/** Open the panel on Comments. */
+function openComments() {
+  setRail(true);
+  selectTab("#tab-comments");
+}
 
 
 /* ------------------------- keeping the document in step ------------------------- */
@@ -450,7 +458,28 @@ const sync = createSync({
         location.hash = "#/";
         snack("That document was deleted.");
       },
+      onPulled: (res) => comments?.pulled(res),
 });
+
+comments = createComments({
+  api,
+  doc,
+  view,
+  sync,
+  snack,
+  host: () => host,
+  openPanel: openComments,
+  onCounts: ({ open, waiting }) => {
+    $("#comments-count").textContent = open ? String(open) : "";
+    const b = $("#stat-comments");
+    b.hidden = !open;
+    b.textContent = `${open} ${open === 1 ? "comment" : "comments"}${waiting ? `, ${waiting} waiting for AI` : ""}`;
+    host?.changed();
+  },
+});
+$("#comment-btn").addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
+$("#comment-btn").addEventListener("click", () => comments.start());
+$("#stat-comments").addEventListener("click", openComments);
 
 /* ---------------------------------- home ---------------------------------- */
 
@@ -534,6 +563,7 @@ function setSuperseded(v) {
     clearInterval(homeTimer);
     homeTimer = null;
     sync.close(); // sends anything not yet saved, then stops polling
+    comments.close();
   } else {
     route();
   }
@@ -617,6 +647,7 @@ function mountAsk() {
 
 async function showHome() {
   await sync.close();
+  comments.close();
   screen("home");
   host?.changed();
   document.title = "Ghostwriter";
@@ -675,6 +706,7 @@ async function openDoc(id) {
     }
     return fail(e);
   }
+  comments.open(id);
   logEl.replaceChildren();
   $("#changes-empty").hidden = false;
   entrySeq = 0;
@@ -709,6 +741,7 @@ function signedOut() {
   clearInterval(homeTimer);
   homeTimer = null;
   sync.close();
+  comments.close();
   screen("signin");
   document.title = "Sign in · Ghostwriter";
   $("#signin-text").textContent = embedded
@@ -776,7 +809,7 @@ if (window.__GHOSTWRITER__?.embedded) {
         isOpen: () => !!sync.id,
         openDocument: (id) => (location.hash = `#/d/${id}`),
         goHome: () => (location.hash = "#/"),
-        getState: () => ({ id: sync.id, title: doc.title, selection: selectedText }),
+        getState: () => ({ id: sync.id, title: doc.title, selection: selectedText, waiting: comments.waiting() }),
         onSuperseded: setSuperseded,
       }),
     )

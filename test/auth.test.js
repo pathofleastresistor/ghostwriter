@@ -355,7 +355,7 @@ describe("MCP hosts (Claude, ChatGPT)", () => {
 
   test("the editor view gets its token for /api from get_view_token, never in its (cacheable) HTML", async () => {
     const { client } = await connectHost(browser());
-    const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
+    const { contents } = await client.readResource({ uri: "ui://ghostwriter/v3/editor.html" });
     const boot = JSON.parse(/window\.__GHOSTWRITER__=(\{.*?\});/.exec(contents[0].text)[1]);
     assert.equal(boot.auth, true);
     assert.equal(boot.token, undefined, "hosts cache view HTML, and may share it");

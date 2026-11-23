@@ -44,7 +44,7 @@ const api_delete = (id) => fetch(`http://127.0.0.1:3011/api/docs/${id}`, { metho
       return res.end(JSON.stringify(await client.callTool({ name, arguments: a })));
     }
     if (req.url === "/view") {
-      const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
+      const { contents } = await client.readResource({ uri: "ui://ghostwriter/v3/editor.html" });
       res.setHeader("content-type", "application/json");
       return res.end(JSON.stringify({ text: contents[0].text, meta: contents[0]._meta }));
     }
@@ -307,6 +307,115 @@ const api_delete = (id) => fetch(`http://127.0.0.1:3011/api/docs/${id}`, { metho
     assert.doesNotMatch(await second.locator("#editor .blk-title").innerText(), /!/, "the keystroke did not land in the title");
     console.log("ok  another editor's change arrives without moving the person's cursor");
     await site.screenshot({ path: path.join(shots, "6-editor.png") });
+
+    // ---- comments: add, highlight, reply, ask the AI, the AI rewrites, revert, resolve, delete, keyboard ----
+    {
+      const p = site;
+      const selectText = (text) =>
+        p.evaluate((text) => {
+          const { view } = window.liveDoc;
+          for (const leaf of view.allLeaves()) {
+            const at = view.textOf(leaf).indexOf(text);
+            if (at >= 0) return view.setSelection(leaf, at, leaf, at + text.length), true;
+          }
+          return false;
+        }, text);
+      assert.ok(await selectText("Bring snacks."));
+      await p.locator("#comment-btn").click();
+      const draftBox = p.locator("#c-new textarea");
+      await draftBox.waitFor({ state: "visible" });
+      assert.equal(await p.locator("#tab-comments").getAttribute("aria-selected"), "true");
+      await draftBox.fill("Which snacks?");
+      await p.locator("#c-new").getByRole("button", { name: "Comment", exact: true }).click();
+      const cardEl = p.locator("#c-list .c-card[data-id]");
+      await cardEl.first().waitFor();
+      assert.equal(await cardEl.count(), 1);
+      assert.match(await cardEl.first().locator(".c-quote").innerText(), /Bring snacks\./);
+      await p.waitForFunction(() => CSS.highlights.has("gw-comment") || CSS.highlights.has("gw-comment-focus"));
+      const ranges = await p.evaluate(() => [...(CSS.highlights.get("gw-comment") ?? []), ...(CSS.highlights.get("gw-comment-focus") ?? [])].map((r) => r.toString()));
+      assert.deepEqual(ranges, ["Bring snacks."], "the commented text is highlighted, and only it");
+      assert.equal((await p.locator("#editor").innerHTML()).includes("gw-comment"), false, "the editable page itself is not changed");
+      await p.locator("#stat-comments", { hasText: "1 comment" }).waitFor();
+      console.log("ok  comment on a selection: a thread in the panel, the text highlighted, the page untouched");
+
+      // reply with the keyboard
+      const reply = cardEl.first().locator(".c-reply textarea");
+      await reply.fill("Chips and fruit.");
+      await reply.press("Control+Enter");
+      await cardEl.first().locator(".c-body", { hasText: "Chips and fruit." }).waitFor();
+
+      // typing before the commented text moves the highlight with it
+      await p.locator("#editor").getByText("Pack the car on Friday.", { exact: false }).click();
+      await p.keyboard.press("Home");
+      await p.keyboard.type("Sat: ", { delay: 15 });
+      await p.waitForFunction(() => [...(CSS.highlights.get("gw-comment") ?? []), ...(CSS.highlights.get("gw-comment-focus") ?? [])].map((r) => r.toString()).join() === "Bring snacks.");
+      console.log("ok  reply with Ctrl+Enter; the highlight follows the text while you type");
+
+      // ask the AI to revise; on the website the request waits for the assistant
+      await cardEl.first().getByRole("button", { name: "Ask AI to revise" }).click();
+      await cardEl.first().locator(".polr-chip", { hasText: "Waiting for AI: revise" }).waitFor();
+      await cardEl.first().locator(".c-note", { hasText: "handle my Ghostwriter comments" }).waitFor();
+      await sleep(1200);
+      const reqs = (await call("list_comment_requests")).structuredContent.requests.filter((r) => r.document_id === tripId);
+      assert.equal(reqs.length, 1);
+      const cid = reqs[0].comment_id;
+      const thread = (await call("list_comments", { document_id: tripId, comment_id: cid })).structuredContent.threads[0];
+      assert.equal(thread.anchor.quote, "Bring snacks.");
+      await call("replace_commented_text", { document_id: tripId, comment_id: cid, text: "Bring chips and fruit.", expected_quote: "Bring snacks." });
+      await call("reply_to_comment", { document_id: tripId, comment_id: cid, text: "Updated the line." });
+      await p.locator("#editor").getByText("Bring chips and fruit.").waitFor({ timeout: 8000 });
+      await cardEl.first().locator(".polr-chip", { hasText: "revised this" }).waitFor({ timeout: 8000 });
+      await cardEl.first().locator(".c-msg.is-ai", { hasText: "Updated the line." }).waitFor();
+      await p.waitForFunction(() => document.querySelector("#editor").isContentEditable);
+      await p.screenshot({ path: path.join(shots, "8-comments.png") });
+      console.log("ok  the assistant finds the waiting request, rewrites only the commented text, and replies");
+
+      await cardEl.first().getByRole("button", { name: "Show change" }).click();
+      await cardEl.first().locator(".c-diff .old", { hasText: "Bring snacks." }).waitFor();
+      await cardEl.first().getByRole("button", { name: "Revert" }).click();
+      await p.locator("#editor").getByText("Bring snacks.").waitFor({ timeout: 8000 });
+      await cardEl.first().locator(".polr-chip", { hasText: "reverted" }).waitFor({ timeout: 8000 });
+      assert.match(JSON.stringify((await call("get_document", { document_id: tripId })).structuredContent), /Bring snacks\./);
+      console.log("ok  Revert puts the old text back");
+
+      // resolve, find it under Resolved, reopen
+      await p.waitForFunction(() => document.querySelector("#editor").isContentEditable);
+      await cardEl.first().getByRole("button", { name: "Resolve" }).click();
+      await cardEl.first().waitFor({ state: "detached" });
+      await p.locator(".c-filter[data-filter=resolved]").click();
+      await cardEl.first().getByRole("button", { name: "Reopen" }).click();
+      await p.locator(".c-filter[data-filter=open]").click();
+      await cardEl.first().waitFor();
+      console.log("ok  resolve hides a thread, and it can be reopened");
+
+      // Ctrl+Alt+J at commented text opens its thread
+      await p.evaluate(() => {
+        const { view } = window.liveDoc;
+        const leaf = view.allLeaves().find((l) => view.textOf(l).includes("Bring snacks."));
+        const at = view.textOf(leaf).indexOf("Bring snacks.") + 3;
+        view.setSelection(leaf, at);
+      });
+      await p.locator("#here-chip", { hasText: "1 comment here" }).waitFor();
+      await p.keyboard.press("Control+Alt+KeyJ");
+      await p.waitForFunction(() => document.activeElement?.classList.contains("c-card"));
+      console.log("ok  the caret on commented text shows a chip, and Ctrl+Alt+J opens the thread");
+
+      // delete with Undo
+      await cardEl.first().locator(".c-msg").first().getByRole("button", { name: "Delete comment and its replies" }).click();
+      await cardEl.first().waitFor({ state: "detached" });
+      await p.locator("#snack-undo").click();
+      await cardEl.first().waitFor();
+      console.log("ok  delete a comment, then Undo brings it back");
+
+      // phone width: the panel is a sheet over the page
+      await p.setViewportSize({ width: 420, height: 800 });
+      await sleep(300);
+      const pos = await p.evaluate(() => getComputedStyle(document.querySelector("#rail")).position);
+      assert.equal(pos, "fixed");
+      await p.screenshot({ path: path.join(shots, "9-comments-narrow.png") });
+      await p.setViewportSize({ width: 1300, height: 800 });
+      console.log("ok  at phone width the comments panel is a sheet");
+    }
 
     // deleting a document closes it in the editors that have it open
     await fetch(`http://127.0.0.1:3011/api/docs/${tripId}`, { method: "DELETE" });
