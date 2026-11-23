@@ -89,6 +89,10 @@ export async function startFakeIdp({ port = 0, clientId = "gw-test", clientSecre
       return json(res, 200, { access_token: at, token_type: "Bearer", expires_in: 300, id_token });
     }
     if (url.pathname === "/userinfo") {
+      if (idp.userinfoFailures > 0) {
+        idp.userinfoFailures--;
+        return json(res, 503, { error: "temporarily_unavailable" });
+      }
       const u = access.get((req.headers.authorization ?? "").replace(/^Bearer /, ""));
       if (!u) return json(res, 401, { error: "invalid_token" });
       return json(res, 200, u);

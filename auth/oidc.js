@@ -144,15 +144,19 @@ export function createOidcClient({ issuer, clientId, clientSecret, redirectUri, 
     const tokens = await getJson(m.token_endpoint, { method: "POST", headers, body: form });
     if (!tokens.id_token) throw new OidcError("The provider sent no ID token. Is the openid scope allowed for this client?");
     const claims = await verifyIdToken(tokens.id_token, nonce);
-    // Providers often keep groups and email out of the ID token; userinfo has them.
+    // Providers often keep groups and email out of the ID token; userinfo has them. If userinfo can't be
+    // read, the allowlist would see someone with no email or groups and turn them away as "not on the
+    // list", which sends them looking for the wrong fix. So try twice, then say it was the connection.
     let info = {};
     if (m.userinfo_endpoint && tokens.access_token) {
+      const read = () => getJson(m.userinfo_endpoint, { headers: { authorization: `Bearer ${tokens.access_token}`, accept: "application/json" } });
       try {
-        info = await getJson(m.userinfo_endpoint, { headers: { authorization: `Bearer ${tokens.access_token}`, accept: "application/json" } });
-        if (info.sub !== claims.sub) info = {}; // must be the same person (OpenID Connect Core 5.3.2)
-      } catch {
-        info = {};
+        info = await read().catch(() => read());
+      } catch (e) {
+        console.error("auth: could not read userinfo:", e.message);
+        throw new OidcError("Ghostwriter couldn't reach your sign-in service to read your account details. Try again in a minute.");
       }
+      if (info.sub !== claims.sub) info = {}; // must be the same person (OpenID Connect Core 5.3.2)
     }
     return { ...info, ...claims };
   }
