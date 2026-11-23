@@ -95,11 +95,13 @@ test("open_document stamps each result with an increasing election key, so older
   assert.ok(b.createdAt >= a.createdAt && c.createdAt >= b.createdAt, "createdAt never goes back");
 });
 
-test("open_document tells the model not to re-open after every edit", async () => {
+test("open_document says a new card isn't needed after an edit, describing what it does rather than ordering the model", async () => {
   const { tools } = await client.listTools();
   const d = tools.find((t) => t.name === "open_document").description;
-  assert.match(d, /Do not call it again after each edit/);
-  assert.match(d, /older cards switch themselves off/);
+  assert.match(d, /a new card isn't needed after an edit/);
+  assert.match(d, /older cards stop updating/);
+  // Anthropic's directory rejects tool descriptions that tell Claude how to behave.
+  assert.doesNotMatch(d, /\b(Do not|Don't|Never|Always|You must)\b/);
 });
 
 test("the view is the website's own page, with absolute URLs and the right permissions", async () => {

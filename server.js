@@ -385,7 +385,7 @@ const extraTools = [
     name: "open_document",
     title: "Ghostwriter",
     description:
-      "Shows the Ghostwriter editor to the person in a new card, so they can read and edit while you work. With a document_id it shows that document; without one it shows the list of documents. Call it when the person asks to see or reopen the editor, or to show a different document. Do not call it again after each edit: your edits appear live in the card they already have, and every call adds another card to the conversation (older cards switch themselves off, only the newest stays live). You cannot tell whether an earlier card is still on screen, so if the person says they cannot see it or it looks blank or stuck, call it again rather than assuming it is open. You do not need the editor to read or edit documents: the other tools work either way.",
+      "Shows the Ghostwriter editor to the person in a new card in the conversation, so they can read and edit alongside you. With a document_id it shows that document; without one it shows the list of documents. For when the person wants to see the editor, reopen it, or switch to another document. Edits made with the other tools appear live in a card that is already open, so a new card isn't needed after an edit; each call adds a card, and older cards stop updating. If the person says the editor is missing, blank or stuck, a new card fixes it. The other tools read and edit documents whether or not a card is open.",
     inputSchema: { type: "object", properties: { document_id: { ...documentId, description: "Optional. Omit to show the document list." } } },
     annotations: READ,
     _meta: uiMeta,
