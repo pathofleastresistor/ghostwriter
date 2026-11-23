@@ -333,9 +333,31 @@ test("the old single document becomes the first document on upgrade", () => {
   assert.ok(fs.existsSync(path.join(old, "doc.json.migrated")));
 });
 
+test("removed documents can be brought back for 30 days, then they are deleted for good", () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "gw-purge-"));
+  fs.mkdirSync(path.join(d, "docs"));
+  const body = JSON.stringify({ title: "x", nodes: [{ type: "paragraph", text: "x" }] });
+  for (const id of ["oldgone1", "newgone1"]) fs.writeFileSync(path.join(d, "docs", `${id}.json.deleted`), body);
+  const old = new Date(Date.now() - 31 * 24 * 3600 * 1000);
+  fs.utimesSync(path.join(d, "docs", "oldgone1.json.deleted"), old, old);
+  execFileSync("node", ["-e", 'import("./server.js").then(()=>process.exit(0))'], { cwd: path.join(import.meta.dirname, ".."), env: { ...process.env, DATA_DIR: d } });
+  assert.ok(!fs.existsSync(path.join(d, "docs", "oldgone1.json.deleted")), "removed 31 days ago: gone");
+  assert.ok(fs.existsSync(path.join(d, "docs", "newgone1.json.deleted")), "removed today: can still be restored");
+});
+
 test("every deploy is identifiable and never served stale: the view carries a build id and site files revalidate", async () => {
   const { contents } = await client.readResource({ uri: "ui://ghostwriter/v2/editor.html" });
   assert.match(contents[0].text, /window\.__GHOSTWRITER_BUILD__="[0-9a-f]{8}"/);
   const res = await fetch(`${url}/main.js`);
   assert.equal(res.headers.get("cache-control"), "no-store");
+});
+
+test("the help and privacy pages the directory listing links to are public", async () => {
+  for (const [p, must] of [["/help", /Troubleshooting/], ["/privacy", /How long we keep it/]]) {
+    const r = await fetch(`${url}${p}`);
+    assert.equal(r.status, 200, p);
+    const html = await r.text();
+    assert.match(html, must);
+    assert.match(html, /mailto:/, `${p} has a contact`);
+  }
 });

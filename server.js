@@ -252,8 +252,34 @@ function restoreDoc(owner, id) {
 function removeDoc(owner, id) {
   const e = getEntry(owner, id);
   store.delete(id);
-  fs.renameSync(path.join(ownerDir(owner), id + ".json"), path.join(ownerDir(owner), id + ".json.deleted"));
+  const gone = path.join(ownerDir(owner), id + ".json.deleted");
+  fs.renameSync(path.join(ownerDir(owner), id + ".json"), gone);
+  const t = new Date();
+  fs.utimesSync(gone, t, t); // when it was removed, for purgeRemoved
   return e;
+}
+
+/** Removed documents can be brought back for REMOVED_DAYS (default 30), then they are deleted for good. */
+const REMOVED_DAYS = Number(process.env.REMOVED_DAYS ?? 30);
+function purgeRemoved() {
+  const cutoff = Date.now() - REMOVED_DAYS * 24 * 3600 * 1000;
+  const dirs = [docsDir, ...fs.readdirSync(docsDir).filter((d) => OWNER_RE.test(d)).map((d) => path.join(docsDir, d))];
+  let n = 0;
+  for (const dir of dirs) {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith(".json.deleted")) continue;
+      const file = path.join(dir, f);
+      if (fs.statSync(file).mtimeMs < cutoff) {
+        fs.rmSync(file);
+        n++;
+      }
+    }
+  }
+  if (n) console.log(`deleted ${n} documents removed more than ${REMOVED_DAYS} days ago`);
+}
+if (Number.isFinite(REMOVED_DAYS) && REMOVED_DAYS > 0) {
+  purgeRemoved();
+  setInterval(purgeRemoved, 6 * 3600 * 1000).unref();
 }
 
 const touch = (e) => {
