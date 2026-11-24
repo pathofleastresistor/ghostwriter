@@ -633,8 +633,63 @@ export function createComments({ api, doc, view, sync, snack, host, openPanel, o
       if (!openAtCaret()) snack("There's no comment where the cursor is.");
     }
   });
+  /* A "Comment" button that appears next to any text selected in the editor. It waits for the
+     mouse to be let go, so it doesn't chase a drag, and sits below the selection so it doesn't
+     cover a phone's own selection menu. */
+  const bubble = $("#sel-comment");
+  let pointerDown = false;
+  let bubbleFrame = 0;
+  function hideBubble() {
+    bubble.hidden = true;
+  }
+  function placeBubble() {
+    bubbleFrame = 0;
+    const sel = getSelection();
+    const root = view.root;
+    const ok = docId && !view.locked && !pointerDown && sel.rangeCount && !sel.isCollapsed && root.contains(sel.anchorNode) && root.contains(sel.focusNode) && sel.toString().trim();
+    if (!ok) return hideBubble();
+    const rects = [...sel.getRangeAt(0).getClientRects()].filter((r) => r.width || r.height);
+    if (!rects.length) return hideBubble();
+    const last = rects[rects.length - 1];
+    bubble.hidden = false;
+    const w = bubble.offsetWidth, h = bubble.offsetHeight, gap = 8;
+    let top = last.bottom + gap;
+    if (top + h > innerHeight - gap) top = rects[0].top - h - gap;
+    if (top < gap) return hideBubble(); // the selection is scrolled out of sight
+    const left = Math.max(gap, Math.min(innerWidth - w - gap, last.right - w / 2));
+    bubble.style.top = `${Math.round(top)}px`;
+    bubble.style.left = `${Math.round(left)}px`;
+  }
+  function updateBubble() {
+    if (!bubbleFrame) bubbleFrame = requestAnimationFrame(placeBubble);
+  }
+  bubble.addEventListener("mousedown", (e) => e.preventDefault()); // keep the selection
+  bubble.addEventListener("click", () => {
+    hideBubble();
+    start();
+  });
+  view.root.addEventListener("pointerdown", () => {
+    pointerDown = true;
+    hideBubble();
+  });
+  addEventListener("pointerup", () => {
+    if (!pointerDown) return;
+    pointerDown = false;
+    updateBubble();
+  });
+  addEventListener("pointercancel", () => {
+    pointerDown = false;
+    updateBubble();
+  });
+  view.root.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !bubble.hidden) hideBubble();
+  });
+  addEventListener("scroll", updateBubble, { capture: true, passive: true });
+  addEventListener("resize", updateBubble);
+
   document.addEventListener("selectionchange", () => {
     if (docId) here();
+    updateBubble();
   });
   doc.subscribe((e) => {
     if (e.type === "user-change" || e.type === "agent-change" || e.type === "restored") paint();
@@ -663,6 +718,7 @@ export function createComments({ api, doc, view, sync, snack, host, openPanel, o
       listEl.replaceChildren();
       newEl.replaceChildren();
       hereChip.hidden = true;
+      hideBubble();
     },
     /** Each poll says the comments' revision; fetch them when it moved. */
     pulled(res) {
